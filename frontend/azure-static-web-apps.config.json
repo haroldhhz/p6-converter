@@ -1,0 +1,40 @@
+{
+  "$schema": "https://aka.ms/azure-static-web-apps-cli/schema",
+  "auth": {
+    "identityProvider": "aad",
+    "userAuthorizationCallBack": "/api/auth/callback",
+    "configFileSource": "api",
+    "login": {
+      "loginParameters": ["scope=openid profile email"]
+    },
+    "rolesSource": "/api/auth/roles"
+  },
+  "routes": [
+    {
+      "route": "/.auth/login/aad",
+      "redirect": "/.auth/login/aad"
+    },
+    {
+      "route": "/.auth/logout/aad",
+      "redirect": "/.auth/logout/aad"
+    },
+    {
+      "route": "/api/auth/callback",
+      "rewrite": "/api/auth/callback"
+    },
+    {
+      "route": "/api/auth/roles",
+      "rewrite": "/api/auth/roles"
+    }
+  ],
+  "globalHeaders": {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS"
+  },
+  "mimeTypes": {
+    ".json": "application/json",
+    ".html": "text/html",
+    ".css": "text/css",
+    ".js": "application/javascript"
+  }
+}

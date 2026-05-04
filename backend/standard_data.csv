@@ -1,0 +1,43 @@
+task_code,task_name,status_code
+PNQ-26-01-CEX-S,Contract Execution,Completed
+PNQ-26-01-LSP-F,Land/ Site Purchase/ Land Lease,Completed
+PNQ-26-01-PLS-S,Planning Permit Submission,Completed
+PNQ-26-01-PLA-F,Planning Permit Approval/Award,Completed
+PNQ-26-01-USC-F,Utility Supply Contract Signed (Water & Electricity),Completed
+PNQ-26-01-GCA-F,GC Contract Award,Completed
+PNQ-26-01-DES-F,Base Build Design Complete,Completed
+PNQ-26-01-SOS-S,Start on Site (Contractors),Completed
+PNQ-26-01-UTL-S,Underground Utilities Start,Completed
+PNQ-26-01-UTL-F,Complete U/G Utilities,Completed
+PNQ-26-01-SUP-F,Complete Superstructure,Completed
+PNQ-26-01-SOD-F,Complete Slab on Deck (as applicable),Completed
+PNQ-26-01-EAP-F,Early Access Provided,Not Started
+PNQ-26-01-RFS-F,Ready for Service (RFS),Not Started
+PNQ-26-01-DRY-F,Complete Weather Tight,Not Started
+PNQ-26-01-POW-F,Complete Utility Power-On (Power Available),Completed
+PNQ-26-01-L5CX-F,Complete L5/IST (White Tag),Not Started
+PNQ-26-01-FND-S,Foundations Start (including piling),Completed
+PNQ-26-01-FND-F,Complete Foundation,Completed
+PNQ-26-01-SOG-F,Complete Slab on Grade,Completed
+PNQ-26-01-SUP-S,Superstructure Start,Completed
+PNQ-26-01-L1CX-S,Start L1 Installation & QA/QC (Red Tag),Completed
+PNQ-26-01-L2CX-S,Start L2 QA/QC Ready to Energize (Yellow Tag),Completed
+PNQ-26-01-L3CX-S,Start L3 Testing & Commissioning (Green tag),Not Started
+PNQ-26-02-EAP-F,Early Access Provided,Not Started
+PNQ-26-02-RFS-F,Ready for Service (RFS),Not Started
+PNQ-26-02-L5CX-F,Complete L5/IST (White Tag),Not Started
+PNQ-26-02-L3CX-S,Start L3 Testing & Commissioning (Green tag),Not Started
+PNQ-26-03-EAP-F,Early Access Provided,Not Started
+PNQ-26-03-RFS-F,Ready for Service (RFS),Not Started
+PNQ-26-03-L5CX-F,Complete L5/IST (White Tag),Not Started
+PNQ-26-03-L3CX-S,Start L3 Testing & Commissioning (Green tag),Not Started
+PNQ-26-04-EAP-F,Early Access Provided,Not Started
+PNQ-26-04-RFS-F,Ready for Service (RFS),Not Started
+PNQ-26-04-L5CX-F,Complete L5/IST (White Tag),Not Started
+PNQ-26-04-L3CX-S,Start L3 Testing & Commissioning (Green tag),Not Started
+PNQ-26-05-EAP-F,Early Access Provided,Not Started
+PNQ-26-05-RFS-F,Ready for Service (RFS),Not Started
+PNQ-26-05-L5CX-F,Complete L5/IST (White Tag),Not Started
+PNQ-26-05-L3CX-S,Start L3 Testing & Commissioning (Green tag),Not Started
+PNQ-26-01-MRFS-F,MSFT Forecast (RFS),Not Started
+PNQ-26-02-MRFS-F,MSFT Forecast (RFS),Not Started

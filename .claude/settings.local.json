@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c \"from azure.ai.documentintelligence.models import AnalyzeDocumentRequest; import inspect; print\\(inspect.signature\\(AnalyzeDocumentRequest.__init__\\)\\)\")"
+    ]
+  }
+}

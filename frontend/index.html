@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lease Agentic Planning (LAP)</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="styles.css?v=18" />
+  <!-- MSAL.js — Microsoft Authentication Library -->
+  <script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@3.11.1/lib/msal-browser.min.js"></script>
+</head>
+<body>
+
+  <!-- ── Sign-in page ───────────────────────────────────────────────────────── -->
+  <div id="signinPage">
+    <div class="signin-card">
+      <div class="signin-logo">📅</div>
+      <h1 class="signin-title">Lease Agentic Planning (LAP)</h1>
+      <p class="signin-sub">Sign in with your Microsoft work account</p>
+      <div class="signin-form">
+        <button type="button" id="msalSigninBtn" class="signin-btn msal-btn">
+          <img src="https://learn.microsoft.com/en-us/entra/identity-platform/media/architecture-overview/microsoft-logo.png"
+               alt="Microsoft" class="ms-icon" />
+          Sign in with Microsoft
+        </button>
+      </div>
+      <p id="signinError" class="signin-error hidden"></p>
+      <p class="signin-footer">Powered by <strong>Azure AI</strong></p>
+    </div>
+  </div>
+
+  <!-- ── Main app ───────────────────────────────────────────────────────────── -->
+  <div id="mainApp">
+
+    <!-- Left navigation sidebar -->
+    <nav class="sidebar">
+      <div class="sidebar-brand">📅 Lease Agentic<br>Planning (LAP)</div>
+
+      <ul class="nav-list">
+        <li class="nav-item active" data-view="ims">
+          <span class="nav-icon">📄</span>
+          <span class="nav-label">IMS Generator</span>
+        </li>
+        <li class="nav-item" data-view="risk">
+          <span class="nav-icon">⚠️</span>
+          <span class="nav-label">Schedule Risk Manager</span>
+        </li>
+        <!-- Admin group — rendered only if user carries the Admin role -->
+        <li class="nav-item nav-admin-group" id="adminNavGroup" style="display:none" data-view="admin">
+          <span class="nav-icon">🛡️</span>
+          <span class="nav-label">Admin</span>
+          <span class="sub-arrow">▼</span>
+        </li>
+      </ul>
+
+      <div class="sidebar-user">
+        <span id="userEmailDisplay" class="sidebar-email"></span>
+        <button type="button" id="signoutBtn" class="sidebar-signout-btn">Sign Out</button>
+      </div>
+    </nav>
+
+    <!-- Workspace -->
+    <div class="workspace">
+
+      <!-- ── View: IMS Generator ──────────────────────────────────────────── -->
+      <div id="view-ims" class="view active">
+        <div class="workspace-content">
+
+          <header class="view-header">
+            <div>
+              <h2 class="view-title">IMS Generator</h2>
+              <p class="subtitle">
+                Upload up to <strong>3 P6 schedule PDFs</strong>. Files are processed in parallel
+                and results are shown per project before downloading.
+              </p>
+            </div>
+          </header>
+
+          <main>
+            <!-- Upload Form -->
+            <form id="uploadForm" enctype="multipart/form-data">
+              <div id="projectsContainer">
+
+                <!-- Project Slot 1 -->
+                <div class="project-slot" data-slot="1">
+                  <div class="slot-header">
+                    <span class="slot-number">Project 1</span>
+                  </div>
+                  <div class="slot-fields">
+                    <div class="form-group">
+                      <label>PDF Schedule <span class="badge">Required</span></label>
+                      <input type="file" name="schedule_file_1" accept=".pdf" required />
+                    </div>
+                    <div class="form-group">
+                      <label>Project Code <span class="badge">Required</span></label>
+                      <input type="text" name="project_code_1" id="ims-project-code-1" placeholder="e.g. KUL24" required />
+                    </div>
+                    <div class="form-group">
+                      <label>Tranche <span class="badge optional">Optional</span></label>
+                      <input type="text" name="tranche_1" placeholder="e.g. T1" value="01" />
+                    </div>
+                    <div class="form-group">
+                      <label>IMS Data Date <span class="badge optional">Optional</span></label>
+                      <input type="date" name="data_date_1" />
+                    </div>
+                    <div class="form-group">
+                      <label>Pages to Process <span class="badge optional">Optional</span></label>
+                      <div class="page-filters-container" data-slot="1">
+                        <div class="page-range-input">
+                          <input type="number" name="page_from_1_0" min="1" placeholder="From" />
+                          <span class="page-range-sep">to</span>
+                          <input type="number" name="page_to_1_0" min="1" placeholder="To" />
+                          <button type="button" class="add-page-filter-btn" title="Add another page range">+</button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Project Slot 2 -->
+                <div class="project-slot hidden" data-slot="2">
+                  <div class="slot-header">
+                    <span class="slot-number">Project 2</span>
+                    <button type="button" class="remove-slot-btn" data-slot="2">✕ Remove</button>
+                  </div>
+                  <div class="slot-fields">
+                    <div class="form-group">
+                      <label>PDF Schedule</label>
+                      <input type="file" name="schedule_file_2" accept=".pdf" />
+                    </div>
+                    <div class="form-group">
+                      <label>Project Code</label>
+                      <input type="text" name="project_code_2" placeholder="e.g. FRA63" />
+                    </div>
+                    <div class="form-group">
+                      <label>Tranche</label>
+                      <input type="text" name="tranche_2" placeholder="e.g. T1" value="01" />
+                    </div>
+                    <div class="form-group">
+                      <label>IMS Data Date</label>
+                      <input type="date" name="data_date_2" />
+                    </div>
+                    <div class="form-group">
+                      <label>Pages to Process</label>
+                      <div class="page-filters-container" data-slot="2">
+                        <div class="page-range-input">
+                          <input type="number" name="page_from_2_0" min="1" placeholder="From" />
+                          <span class="page-range-sep">to</span>
+                          <input type="number" name="page_to_2_0" min="1" placeholder="To" />
+                          <button type="button" class="add-page-filter-btn" title="Add another page range">+</button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Project Slot 3 -->
+                <div class="project-slot hidden" data-slot="3">
+                  <div class="slot-header">
+                    <span class="slot-number">Project 3</span>
+                    <button type="button" class="remove-slot-btn" data-slot="3">✕ Remove</button>
+                  </div>
+                  <div class="slot-fields">
+                    <div class="form-group">
+                      <label>PDF Schedule</label>
+                      <input type="file" name="schedule_file_3" accept=".pdf" />
+                    </div>
+                    <div class="form-group">
+                      <label>Project Code</label>
+                      <input type="text" name="project_code_3" placeholder="e.g. SYD25" />
+                    </div>
+                    <div class="form-group">
+                      <label>Tranche</label>
+                      <input type="text" name="tranche_3" placeholder="e.g. T1" value="01" />
+                    </div>
+                    <div class="form-group">
+                      <label>IMS Data Date</label>
+                      <input type="date" name="data_date_3" />
+                    </div>
+                    <div class="form-group">
+                      <label>Pages to Process</label>
+                      <div class="page-filters-container" data-slot="3">
+                        <div class="page-range-input">
+                          <input type="number" name="page_from_3_0" min="1" placeholder="From" />
+                          <span class="page-range-sep">to</span>
+                          <input type="number" name="page_to_3_0" min="1" placeholder="To" />
+                          <button type="button" class="add-page-filter-btn" title="Add another page range">+</button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+              </div><!-- /projectsContainer -->
+
+              <div class="form-actions">
+                <button type="button" id="addProjectBtn" class="add-project-btn">+ Add Project</button>
+                <button type="submit" id="submitBtn">
+                  <span id="btnText">Convert All</span>
+                  <span id="spinner" class="spinner hidden"></span>
+                </button>
+              </div>
+            </form>
+
+            <div id="statusBox" class="status-box hidden"></div>
+
+            <!-- Results -->
+            <div id="resultsSection" class="hidden">
+              <div class="results-header">
+                <h3>Results</h3>
+                <button type="button" id="newConversionBtn" class="cancel-btn">↩ New Conversion</button>
+              </div>
+              <div id="projectTabs" class="project-tabs"></div>
+              <div id="resultsPanel" class="results-panel"></div>
+              <div class="results-actions">
+                <button type="button" id="downloadBtn" class="download-btn">⬇ Download XLSX</button>
+                <button type="button" id="saveKbBtn" class="save-kb-btn">💾 Save to Knowledge Base</button>
+              </div>
+            </div>
+          </main>
+
+          <footer class="view-footer">
+            <p>Powered by <strong>Azure AI</strong></p>
+          </footer>
+        </div>
+      </div><!-- /view-ims -->
+
+      <!-- ── View: Schedule Risk Manager ─────────────────────────────────── -->
+      <div id="view-risk" class="view">
+        <div class="workspace-content">
+
+          <header class="view-header">
+            <div>
+              <h2 class="view-title">Schedule Risk Manager</h2>
+              <p class="subtitle">
+                Upload a schedule assessment Excel to parse findings, categorise risks,
+                and generate an Acumen Fuse risk register.
+              </p>
+            </div>
+          </header>
+
+          <main class="risk-main">
+
+            <!-- Upload form + Knowledge panel side by side -->
+            <div class="risk-top-panels">
+
+              <!-- Assessment upload form -->
+              <div class="risk-panel">
+                <h3 class="panel-title">Upload Assessment</h3>
+                <form id="riskUploadForm" enctype="multipart/form-data">
+                  <div class="form-group">
+                    <label>Schedule Assessment Excel <span class="badge">Required</span></label>
+                    <input type="file" id="assessmentFile" name="assessment_file" accept=".xlsx,.xls" required />
+                  </div>
+                  <div class="form-group">
+                    <label>Project Code <span class="badge">Required</span></label>
+                    <input type="text" id="riskProjectCode" name="project_code" placeholder="e.g. HYD20" required />
+                  </div>
+                  <div class="form-group">
+                    <label>Tranche(s) <span class="badge">Required</span></label>
+                    <input type="text" name="tranches" placeholder="e.g. T5-T10" required />
+                  </div>
+                  <div class="form-group">
+                    <label>Assessment Date <span class="badge">Required</span></label>
+                    <input type="date" name="assessment_date" required />
+                  </div>
+                  <button type="submit" id="riskSubmitBtn" class="risk-submit-btn">
+                    <span id="riskBtnText">Parse & Score Risks</span>
+                    <span id="riskSpinner" class="spinner hidden"></span>
+                  </button>
+                </form>
+              </div>
+
+              <!-- Construction Risk Register panel -->
+              <div class="risk-panel knowledge-upload-panel">
+                <h3 class="panel-title">📤 Upload Construction Risk Register</h3>
+                <p class="panel-desc">
+                  Upload a previous construction risk register (Excel or PDF).
+                  The AI uses it alongside the LPSS scores and weight% to calibrate
+                  probability and impact for each identified risk.
+                </p>
+                <div class="knowledge-types">
+                  <div class="knowledge-type-tag">Previous risk register</div>
+                </div>
+                <div class="form-group" style="margin-top:1rem">
+                  <label>Risk Register File <span class="badge optional">Optional</span></label>
+                  <input type="file" id="knowledgeFiles" accept=".xlsx,.xls,.pdf,.csv" />
+                </div>
+                <div id="knowledgeFileList" class="knowledge-file-list"></div>
+                <div id="knowledgeStatus" class="knowledge-status hidden"></div>
+                <p class="panel-note">File is sent automatically when you click <em>Parse & Score Risks</em>.</p>
+              </div>
+
+            </div><!-- /risk-top-panels -->
+
+            <!-- Placeholder shown before first run -->
+            <div id="riskResultsPlaceholder" class="risk-placeholder">
+              <div class="placeholder-icon">⚠️</div>
+              <p class="placeholder-title">No assessment loaded</p>
+              <p class="placeholder-sub">Upload a schedule assessment Excel above to begin AI parsing and risk categorisation.</p>
+            </div>
+
+            <div id="riskStatusBox" class="status-box hidden"></div>
+
+            <!-- Results section (shown after parsing) -->
+            <div id="riskResultsSection" class="hidden">
+              <div class="risk-results-header">
+                <div class="risk-results-meta">
+                  <h3 id="riskResultsTitle">Risk Candidates</h3>
+                  <span id="riskCountBadge" class="risk-count-badge"></span>
+                </div>
+                <div class="risk-results-actions-top">
+                  <button type="button" id="addRiskBtn" class="add-risk-btn">+ Add Risk</button>
+                  <button type="button" id="mergeRiskBtn" class="merge-risk-btn" disabled>⤢ Merge Selected</button>
+                </div>
+              </div>
+
+              <div class="risk-table-wrap">
+                <table class="risk-table" id="riskTable">
+                  <thead>
+                    <tr>
+                      <th class="col-check"><input type="checkbox" id="riskSelectAll" title="Select all"></th>
+                      <th class="col-actions">Actions</th>
+                      <th class="col-id">ID</th>
+                      <th class="col-category">Category</th>
+                      <th class="col-name">Risk Name</th>
+                      <th class="col-type">Type</th>
+                      <th class="col-source">Source</th>
+                      <th class="col-confidence">Confidence</th>
+                      <th class="col-score">Probability</th>
+                      <th class="col-score">Schedule Impact</th>
+                      <th class="col-rating">Risk Score</th>
+                    </tr>
+                  </thead>
+                  <tbody id="riskTableBody"></tbody>
+                </table>
+              </div>
+
+              <div class="risk-results-actions-bottom">
+                <button type="button" id="downloadRiskBtn" class="download-risk-btn">
+                  ⬇ Download Risk Register
+                </button>
+                <button type="button" id="saveRiskKbBtn" class="save-kb-btn">
+                  💾 Save to Knowledge Base
+                </button>
+              </div>
+            </div>
+
+          </main>
+
+          <footer class="view-footer">
+            <p>Powered by <strong>Azure AI</strong></p>
+          </footer>
+        </div>
+      </div><!-- /view-risk -->
+
+      <!-- ── View: Activity Log (Admin) ────────────────────────────────────── -->
+      <div id="view-admin" class="view">
+        <div class="workspace-content">
+
+          <header class="view-header">
+            <div>
+              <h2 class="view-title">Activity Log</h2>
+              <p class="subtitle">Platform-wide audit trail — every IMS Generator and Schedule Risk Manager run.</p>
+            </div>
+          </header>
+
+          <main>
+            <!-- Filter bar -->
+            <div class="activity-filter-bar">
+              <div class="filter-group">
+                <label>User</label>
+                <input type="text" id="filterUser" placeholder="Filter by email…" />
+              </div>
+              <div class="filter-group">
+                <label>Function</label>
+                <select id="filterFunction">
+                  <option value="">All</option>
+                  <option value="ims_generator">IMS Generator</option>
+                  <option value="schedule_risk_manager">Schedule Risk Manager</option>
+                </select>
+              </div>
+              <div class="filter-group">
+                <label>Date From</label>
+                <input type="date" id="filterDateFrom" />
+              </div>
+              <div class="filter-group">
+                <label>Date To</label>
+                <input type="date" id="filterDateTo" />
+              </div>
+              <div class="filter-group">
+                <label>Status</label>
+                <select id="filterStatus">
+                  <option value="">All</option>
+                  <option value="success">Success</option>
+                  <option value="partial">Partial</option>
+                  <option value="failed">Failed</option>
+                </select>
+              </div>
+              <div class="filter-group">
+                <label>Project Code</label>
+                <input type="text" id="filterProject" placeholder="e.g. KUL24" />
+              </div>
+              <button type="button" id="applyFilters" class="filter-apply-btn">Apply</button>
+              <button type="button" id="resetFilters" class="filter-reset-btn">Reset</button>
+            </div>
+
+            <!-- Activity table -->
+            <div class="activity-table-wrap">
+              <table class="activity-table" id="activityTable">
+                <thead>
+                  <tr>
+                    <th>User</th>
+                    <th>Function</th>
+                    <th>Project / Tranche</th>
+                    <th data-sort="triggered_at">Triggered At ↕</th>
+                    <th>Duration</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="activityTableBody">
+                  <tr><td colspan="7" class="empty-row">Loading activity log…</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Pagination -->
+            <div class="activity-pagination">
+              <button type="button" id="prevPage" class="page-btn" disabled>← Previous</button>
+              <span id="pageInfo" class="page-info">Page 1</span>
+              <button type="button" id="nextPage" class="page-btn" disabled>Next →</button>
+              <button type="button" id="exportCsv" class="export-csv-btn">⬇ Export CSV</button>
+            </div>
+          </main>
+
+          <footer class="view-footer">
+            <p>Powered by <strong>Azure AI</strong></p>
+          </footer>
+        </div>
+      </div><!-- /view-admin -->
+
+    </div><!-- /workspace -->
+
+    <!-- Toast (shared across views) -->
+    <div id="toastPopup" class="toast-popup hidden">
+      <span id="toastIcon"></span>
+      <span id="toastMsg"></span>
+    </div>
+
+    <!-- ── Scoring Modal ───────────────────────────────────────────────────── -->
+    <div id="scoringModal" class="modal-overlay hidden">
+      <div class="modal-box">
+        <div class="modal-header">
+          <h3 class="modal-title">⚠️ Set Probability & Schedule Impact</h3>
+          <button type="button" id="closeScoringModal" class="modal-close">✕</button>
+        </div>
+        <p class="modal-desc">
+          Some construction risks in the uploaded register are missing probability or impact ratings.
+          Please assign scores using the 1–6 scale
+          (1 = Negligible &nbsp;·&nbsp; 2 = Very Low &nbsp;·&nbsp; 3 = Low &nbsp;·&nbsp;
+          4 = Medium &nbsp;·&nbsp; 5 = High &nbsp;·&nbsp; 6 = Very High).
+          Schedule risks (S1, S2…) are scored automatically from LPSS data.
+        </p>
+        <div class="modal-batch">
+          <span class="modal-batch-label">Apply to all:</span>
+          <select id="batchProbability" class="score-select">
+            <option value="">— Probability —</option>
+            <option value="1">1 — Negligible</option>
+            <option value="2">2 — Very Low</option>
+            <option value="3">3 — Low</option>
+            <option value="4">4 — Medium</option>
+            <option value="5">5 — High</option>
+            <option value="6">6 — Very High</option>
+          </select>
+          <select id="batchImpact" class="score-select">
+            <option value="">— Schedule Impact —</option>
+            <option value="1">1 — Negligible</option>
+            <option value="2">2 — Very Low</option>
+            <option value="3">3 — Low</option>
+            <option value="4">4 — Medium</option>
+            <option value="5">5 — High</option>
+            <option value="6">6 — Very High</option>
+          </select>
+          <button type="button" id="applyBatchScores" class="modal-batch-btn">Apply to All</button>
+        </div>
+        <div class="modal-table-wrap">
+          <table class="modal-scoring-table">
+            <thead>
+              <tr>
+                <th>ID</th><th>Category</th><th>Risk Name</th>
+                <th>Probability (1–6)</th><th>Schedule Impact (1–6)</th>
+              </tr>
+            </thead>
+            <tbody id="scoringTableBody"></tbody>
+          </table>
+        </div>
+        <div class="modal-footer">
+          <button type="button" id="applyScoringBtn" class="risk-submit-btn" style="width:auto;padding:0.6rem 1.5rem">
+            Save & Close
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Activity Detail Modal (Admin) ───────────────────────────────────── -->
+    <div id="activityDetailModal" class="modal-overlay hidden">
+      <div class="modal-box modal-box-wide">
+        <div class="modal-header">
+          <h3 class="modal-title" id="activityDetailTitle">Activity Detail</h3>
+          <button type="button" id="closeActivityDetail" class="modal-close">✕</button>
+        </div>
+        <div class="activity-detail-body" id="activityDetailBody">
+          <!-- Filled dynamically by JS -->
+          <p>Loading…</p>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /mainApp -->
+
+  <script src="app.js?v=18"></script>
+</body>
+</html>
