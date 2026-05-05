@@ -192,18 +192,25 @@ async def risk_manager_parse(
     from backend.risk_parser import parse_assessment
 
     t0 = time.time()
+    register_meta = []
+    if risk_register_file:
+        register_bytes = await risk_register_file.read()
+        register_meta = [_file_meta(risk_register_file.filename or "risk_register", register_bytes)]
+        await risk_register_file.seek(0)
+    else:
+        register_bytes = None
+
     event_id = capture_event(
         user_email=user.email,
         function_name="schedule_risk_manager",
         project_code=project_code,
         tranche=tranches,
-        input_files=[_file_meta(assessment_file.filename or "assessment.xlsx", await assessment_file.read())],
+        input_files=[_file_meta(assessment_file.filename or "assessment.xlsx", await assessment_file.read())] + register_meta,
         user_display_name=user.name,
     )
     # Reset file position after reading for meta
     await assessment_file.seek(0)
     file_bytes = await assessment_file.read()
-    register_bytes = await risk_register_file.read() if risk_register_file else None
 
     kb_corrections = await asyncio.to_thread(get_risk_corrections, project_code)
     try:

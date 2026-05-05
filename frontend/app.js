@@ -828,8 +828,8 @@ function renderRiskTable() {
         <td class="col-type"><select class="type-select" data-idx="${r._idx}" data-field="type"><option ${r.type === "Threat" ? "selected" : ""}>Threat</option><option ${r.type === "Opportunity" ? "selected" : ""}>Opportunity</option></select></td>
         <td class="col-source">${escapeHtml(r.source_sheet || "")}${r.source_finding ? "<br><small>" + escapeHtml(r.source_finding) + "</small>" : ""}</td>
         <td class="col-confidence">${confidenceHtml(r.confidence)}</td>
-        <td class="col-score">${scoreSelectHtml("current_probability", r.current_probability, r._idx)}</td>
-        <td class="col-score">${scheduleSelectHtml(r.current_schedule, r._idx)}</td>
+        <td class="col-score ${r.current_probability === 0 ? 'score-needs-review' : ''}">${scoreSelectHtml("current_probability", r.current_probability, r._idx)}</td>
+        <td class="col-score ${r.current_schedule === 0 ? 'score-needs-review' : ''}">${scheduleSelectHtml(r.current_schedule, r._idx)}</td>
         <td class="col-rating" style="text-align:center;font-weight:700;color:#1a3c6e">${(r.current_probability || 0) * (r.current_schedule || 0) || "-"}</td>
       </tr>
       <tr class="evidence-detail-row hidden" data-for="${r._idx}">

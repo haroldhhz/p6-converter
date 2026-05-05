@@ -635,6 +635,30 @@ body {
   background: #fff;
   cursor: pointer;
 }
+
+/* Amber highlight for unscored risks — needs review */
+.score-needs-review {
+  background-color: #fef3c7 !important;
+  border-left: 3px solid #f59e0b !important;
+}
+.score-needs-review .score-select,
+.score-needs-review select {
+  background-color: #fef3c7 !important;
+  border-color: #f59e0b !important;
+}
+
+/* Warning badge on score cell */
+.score-warning-badge {
+  display: inline-block;
+  font-size: 0.65rem;
+  color: #92400e;
+  background: #fde68a;
+  border-radius: 3px;
+  padding: 0.05rem 0.35rem;
+  margin-left: 0.3rem;
+  vertical-align: middle;
+}
+
 .modal-batch-btn {
   background: #1a3c6e;
   color: #fff;
