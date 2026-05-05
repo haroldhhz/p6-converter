@@ -140,6 +140,50 @@ Rules:
 """
 
 
+CONSTRUCTION_RISK_FROM_IMAGE_PROMPT = """You are parsing a construction risk register from a screenshot or image of a risk register slide/page.
+
+Extract risk records and return a JSON array. Focus on the "Open Issues", "Risks", and "Blockers" section if visible.
+
+Each element must have exactly these fields:
+{
+  "risk_name":           "<short title or name of the risk>",
+  "category":            "<max 2 words — derived by summarising the description, e.g. 'Permit Delay', 'Supply Chain', 'Resource Constraint', 'Scope Change', 'Weather Risk'>",
+  "description":         "<full description text from the risk register — include all detail>",
+  "target_close_date":   "<the target close / target resolution date if visible, e.g. 'May 30, 2026' — leave empty string if not found>",
+  "current_probability": <integer 1–6 from probability rating, or 0 if missing/not readable>,
+  "current_schedule":     <integer 1–6 from schedule impact, or 0 if missing/not readable>
+}
+
+STATUS LOGIC — determine status by comparing dates:
+- assessment_date = "{assessment_date}" (the date the user is conducting this assessment)
+- If assessment_date < target_close_date → status = "Open"
+- If assessment_date >= target_close_date → status = "Closed"
+- Only return risks where status = "Open"
+- If target_close_date is not visible/readable, include the risk (treat as open)
+
+NOTE: in your JSON output, fields like "target_close_date" will contain literal date strings with {{ }} curly braces — output them exactly as shown.
+
+CATEGORY ASSIGNMENT (max 2 words):
+Summarise the risk description into 2 words maximum. Examples:
+- "Delay in obtaining building permit from local authority" → "Permit Delay"
+- "Critical components on long lead time" → "Supply Chain"
+- "Shortage of skilled labour on site" → "Resource Constraint"
+- "Scope not fully defined at this stage" → "Scope Change"
+- "Adverse weather conditions expected in monsoon season" → "Weather Risk"
+- "Design changes requested by client" → "Design Change"
+- "Budget overrun on MEP works" → "Budget Risk"
+
+Scoring scale: 1=Negligible, 2=Very Low, 3=Low, 4=Medium, 5=High, 6=Very High.
+
+Rules:
+- Extract risks from the "Open Issues", "Risks", or "Blockers" section if present.
+- Only include Open risks (apply the date logic above).
+- If probability or impact scores are not readable from the image, output 0.
+- Output ONLY a valid JSON array. No markdown fences, no explanation.
+- The image may be a slide screenshot — look for tables, lists, or structured text.
+"""
+
+
 def extract_construction_risks_via_ai(register_bytes: bytes) -> dict:
     """
     Send the construction risk register to DeepSeek for structured extraction.
@@ -190,6 +234,16 @@ def extract_construction_risks_via_ai(register_bytes: bytes) -> dict:
         if raw.startswith("json"):
             raw = raw[4:]
     raw = raw.strip()
+
+    # Robust JSON extraction: find the first `[` and last `]` to handle
+    # cases where the AI includes prose before/after the JSON array.
+    json_start = raw.find("[")
+    json_end = raw.rfind("]")
+    if json_start != -1 and json_end != -1 and json_end > json_start:
+        raw = raw[json_start : json_end + 1]
+        logger.info("Trimmed AI response to JSON array bounds (%d chars)", len(raw))
+    else:
+        logger.warning("Could not locate JSON array bounds in AI response: %s", raw[:200])
 
     extracted: list[dict] = json.loads(raw)
 
@@ -407,7 +461,12 @@ def parse_assessment(
     manual_scoring_required = False
 
     if risk_register_bytes:
-        cr = extract_construction_risks_via_ai(risk_register_bytes)
+        # Detect PNG by magic bytes
+        if risk_register_bytes[:4] == b'\x89PNG':
+            logger.info("Detected PNG risk register — using image extraction path")
+            cr = extract_construction_risks_from_image(risk_register_bytes, assessment_date)
+        else:
+            cr = extract_construction_risks_via_ai(risk_register_bytes)
         construction_risks = cr["risks"]
         manual_scoring_required = cr["manual_scoring_required"]
 
@@ -464,6 +523,16 @@ def parse_assessment(
             raw = raw[4:]
     raw = raw.strip()
 
+    # Robust JSON extraction: find the first `[` and last `]` to handle
+    # cases where the AI includes prose before/after the JSON array.
+    json_start = raw.find("[")
+    json_end = raw.rfind("]")
+    if json_start != -1 and json_end != -1 and json_end > json_start:
+        raw = raw[json_start : json_end + 1]
+        logger.info("Trimmed schedule AI response to JSON array bounds (%d chars)", len(raw))
+    else:
+        logger.warning("Could not locate JSON array bounds in schedule AI response: %s", raw[:200])
+
     schedule_candidates: list[dict] = json.loads(raw)
     schedule_candidates = _consolidate_duplicates(schedule_candidates)
 
@@ -510,6 +579,134 @@ def parse_assessment(
         project_code, len(schedule_candidates), len(construction_risks),
     )
     return {"risks": all_risks, "manual_scoring_required": manual_scoring_required}
+
+
+def extract_construction_risks_from_image(image_bytes: bytes, assessment_date: str) -> dict:
+    """
+    Extract construction risks from a PNG screenshot of a risk register.
+    Uses Azure Document Intelligence to extract text from the image,
+    then sends to DeepSeek for structured extraction with date-driven status logic.
+    Returns {"risks": [...], "manual_scoring_required": bool}
+    """
+    from backend.ai_client import get_doc_intel_client, get_openai_client, _get_deployment
+    from azure.ai.documentintelligence.models import AnalyzeDocumentRequest
+
+    # Extract text from PNG using Document Intelligence layout model
+    client = get_doc_intel_client()
+    request = AnalyzeDocumentRequest(bytes_source=image_bytes)
+    poller = client.begin_analyze_document(
+        model_id="prebuilt-layout",
+        body=request,
+    )
+    result = poller.result()
+
+    # Build text content from document analysis
+    text_parts = []
+    if hasattr(result, "content") and result.content:
+        text_parts.append(result.content)
+
+    # Also collect per-page text
+    if hasattr(result, "pages"):
+        for page in result.pages:
+            if hasattr(page, "lines"):
+                for line in page.lines:
+                    if hasattr(line, "content") and line.content:
+                        text_parts.append(line.content)
+            if hasattr(page, "paragraphs"):
+                for para in page.paragraphs:
+                    if hasattr(para, "content") and para.content:
+                        text_parts.append(para.content)
+
+    image_text = "\n".join(text_parts)
+    logger.info("Extracted %d chars from PNG via Document Intelligence", len(image_text))
+
+    if not image_text.strip():
+        logger.warning("No text extracted from PNG image")
+        return {"risks": [], "manual_scoring_required": False}
+
+    # Build system prompt with assessment_date injected
+    system_prompt = CONSTRUCTION_RISK_FROM_IMAGE_PROMPT.replace("{assessment_date}", assessment_date)
+
+    # Send to DeepSeek for structured extraction
+    ai_client = get_openai_client()
+    deployment = _get_deployment()
+
+    logger.info("Sending PNG extracted text to %s for risk extraction (%d chars)",
+                 deployment, len(image_text))
+
+    response = ai_client.chat.completions.create(
+        model=deployment,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": image_text},
+        ],
+        max_tokens=8000,
+        temperature=0.0,
+    )
+
+    raw = response.choices[0].message.content.strip()
+    if raw.startswith("```"):
+        parts_md = raw.split("```")
+        raw = parts_md[1] if len(parts_md) > 1 else raw
+        if raw.startswith("json"):
+            raw = raw[4:]
+    raw = raw.strip()
+
+    # Robust JSON extraction: find the first `[` and last `]` to handle
+    # cases where the AI includes prose before/after the JSON array.
+    json_start = raw.find("[")
+    json_end = raw.rfind("]")
+    if json_start != -1 and json_end != -1 and json_end > json_start:
+        raw = raw[json_start : json_end + 1]
+        logger.info("Trimmed PNG AI response to JSON array bounds (%d chars)", len(raw))
+    else:
+        logger.warning("Could not locate JSON array bounds in PNG AI response: %s", raw[:200])
+
+    # Validate trimmed result is a reasonable length before parsing
+    if len(raw) < 20:
+        logger.warning(
+            "Trimmed JSON from PNG AI response is suspiciously short (%d chars). "
+            "Full raw response: %s",
+            len(raw), raw[:500]
+        )
+        return {"risks": [], "manual_scoring_required": False}
+
+    # Parse with explicit error handling — log raw response for debugging
+    try:
+        extracted: list[dict] = json.loads(raw)
+    except json.JSONDecodeError as e:
+        logger.error(
+            "Failed to parse JSON from PNG AI response (pos %d, col %d): %s. "
+            "Raw response (first 1000 chars): %s",
+            e.pos, e.lineno if hasattr(e, "lineno") else -1, e.msg, raw[:1000]
+        )
+        return {"risks": [], "manual_scoring_required": False}
+
+    # Normalise to standard risk format
+    risks = []
+    for item in extracted:
+        # The AI may return "description" or "evidence" field from image
+        description = item.get("description", "") or item.get("evidence", "")
+        risks.append({
+            "risk_source":         "construction",
+            "source_sheet":        "PNG Image",
+            "source_finding":      item.get("risk_name", ""),
+            "category":            item.get("category", "Construction Risk"),
+            "risk_name":           item.get("risk_name", ""),
+            "type":                "Threat",
+            "shape":               "Triangular",
+            "evidence":            description,
+            "confidence":          0.85,
+            "current_probability": int(item.get("current_probability", 0) or 0),
+            "current_schedule":    int(item.get("current_schedule", 0) or 0),
+        })
+
+    manual_scoring_required = any(
+        r["current_probability"] == 0 or r["current_schedule"] == 0 for r in risks
+    )
+    logger.info("Extracted %d risks from PNG image (manual_scoring=%s)",
+                len(risks), manual_scoring_required)
+    return {"risks": risks, "manual_scoring_required": manual_scoring_required}
 
 
 def _consolidate_duplicates(candidates: list[dict]) -> list[dict]:
