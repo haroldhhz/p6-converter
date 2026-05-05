@@ -129,12 +129,7 @@ class ActivityEvent:
     created_at: Optional[float] = None
 
     def to_dict(self) -> dict:
-        d = {k: v for k, v in self.__dict__.items() if v is not None}
-        if d.get("input_files"):
-            d["input_files"] = json.dumps(d["input_files"])
-        if d.get("result_summary"):
-            d["result_summary"] = json.dumps(d["result_summary"])
-        return d
+        return {k: v for k, v in self.__dict__.items() if v is not None}
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> "ActivityEvent":

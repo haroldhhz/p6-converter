@@ -1847,7 +1847,7 @@ body[data-visible-slots="3"] .project-slot {
 
 /* ─── Activity Detail Modal ───────────────────────────────────────────────────── */
 .modal-box-wide {
-  max-width: 860px;
+  max-width: 1100px;
   width: 95vw;
 }
 .activity-detail-body {
@@ -1860,7 +1860,62 @@ body[data-visible-slots="3"] .project-slot {
   grid-template-columns: 1fr 1fr;
   gap: 1.25rem;
 }
-.activity-detail-grid > *:last-child { grid-column: 1 / -1; }
+.detail-full-width { grid-column: 1 / -1; }
+.detail-right-col {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+.detail-risk-table-wrap {
+  overflow-x: auto;
+}
+.detail-risk-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+}
+.detail-risk-table th {
+  background: #1a3c6e;
+  color: #fff;
+  font-weight: 700;
+  padding: 0.45rem 0.6rem;
+  text-align: left;
+  white-space: nowrap;
+}
+.detail-risk-table td {
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid #e2e8f0;
+  vertical-align: top;
+}
+.detail-risk-table tbody tr:nth-child(even) { background: #f8fafc; }
+.detail-risk-table tbody tr:hover { background: #eff6ff; }
+
+/* Detail activities table (IMS Generator audit) */
+.detail-activities-table-wrap {
+  overflow-x: auto;
+  max-height: 400px;
+  overflow-y: auto;
+}
+.detail-activities-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+.detail-activities-table th {
+  background: #1a3c6e;
+  color: #fff;
+  padding: 0.4rem 0.6rem;
+  text-align: left;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.detail-activities-table td {
+  padding: 0.35rem 0.5rem;
+  border-bottom: 1px solid #e2e8f0;
+}
+.detail-activities-table tbody tr:nth-child(even) { background: #f8fafc; }
+.detail-activities-table tbody tr:hover { background: #eff6ff; }
 .detail-section h4 {
   font-size: 0.82rem;
   font-weight: 700;

@@ -222,12 +222,14 @@ async def risk_manager_parse(
 
     duration_ms = int((time.time() - t0) * 1000)
     candidates = result["risks"]
+    stored_risks = [{k: v for k, v in r.items() if not k.startswith("_")} for r in candidates]
     complete_event(
         event_id=event_id,
         status="success",
         result_summary={
             "risk_count": len(candidates),
             "manual_scoring_required": result.get("manual_scoring_required", False),
+            "risks": stored_risks,
         },
         duration_ms=duration_ms,
     )
@@ -391,7 +393,7 @@ async def _process_project(
 # ─── Protected IMS Endpoints ─────────────────────────────────────────────────
 
 @app.post("/batch-convert/", tags=["Convert"])
-async def batch_convert(request: Request, **kwargs):
+async def batch_convert(request: Request):
     """
     Convert up to 3 PDF schedules in parallel.
     Requires authentication. Instruments each project slot as an activity event.
@@ -466,6 +468,17 @@ async def batch_convert(request: Request, **kwargs):
 
     # Complete parent event
     status = "failed" if errors and not successes else "partial" if errors else "success"
+    
+    # Build per-project activity summaries for audit display
+    project_details = []
+    for r in results:
+        if isinstance(r, dict) and "activities" in r:
+            project_details.append({
+                "project_code": r.get("project_code", ""),
+                "row_count": r.get("row_count", 0),
+                "activities": r.get("activities", [])[:100],  # Store first 100 for audit
+            })
+    
     complete_event(
         event_id=event_id,
         status=status,
@@ -474,6 +487,7 @@ async def batch_convert(request: Request, **kwargs):
             "projects_succeeded": len(successes),
             "projects_failed": len(errors),
             "error_projects": errors,
+            "project_details": project_details,
         },
         duration_ms=duration_ms,
     )

@@ -559,8 +559,12 @@ downloadBtn.addEventListener("click", async () => {
       body: JSON.stringify({ project_code: p.project_code, activities: editableActivities }),
     });
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || `Server error ${res.status}`);
+      let errMsg = `Server error ${res.status}`;
+      try {
+        const errData = await res.json();
+        errMsg = typeof errData?.detail === 'string' ? errData.detail : errMsg;
+      } catch (_) {}
+      throw new Error(errMsg);
     }
     const data = await res.json();
     if (data.xlsx_b64) {
@@ -661,8 +665,12 @@ form.addEventListener("submit", async (e) => {
       body: fd,
     });
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || `Server error ${res.status}`);
+      let errMsg = `Server error ${res.status}`;
+      try {
+        const errData = await res.json();
+        errMsg = typeof errData?.detail === 'string' ? errData.detail : errMsg;
+      } catch (_) {}
+      throw new Error(errMsg);
     }
     const data = await res.json();
     projectResults = data.projects || [];
@@ -1036,11 +1044,6 @@ let activitySortCol = "triggered_at";
 let activitySortDir = "desc";
 
 function loadActivityLog() {
-  if (currentUser && !currentUser.is_admin) {
-    document.getElementById("activityTableBody").innerHTML =
-      `<tr><td colspan="7" class="empty-row">Admin access required.</td></tr>`;
-    return;
-  }
   fetchActivityEvents({ page: activityPage });
 }
 
@@ -1057,7 +1060,12 @@ async function fetchActivityEvents({ page = 1, filters = {} } = {}) {
 
   try {
     const res = await fetch(`${API_BASE}/api/admin/events?${params}`, { headers: authHeaders() });
-    if (!res.ok) throw new Error(res.status);
+    if (!res.ok) {
+      const msg = res.status === 403 ? "Admin access required." : "Failed to load activity log.";
+      document.getElementById("activityTableBody").innerHTML =
+        `<tr><td colspan="7" class="empty-row">${msg}</td></tr>`;
+      return;
+    }
     const data = await res.json();
     activityEvents = data.events || [];
     activityPage = data.page || 1;
@@ -1190,7 +1198,80 @@ function renderActivityDetailHtml(ev) {
   const duration = ev.duration_ms ? `${Math.round(ev.duration_ms / 1000)}s` : "—";
   const status_cls = ev.status === "success" ? "status-success" : ev.status === "partial" ? "status-partial" : "status-failed";
   const inputFiles = (ev.input_files || []).map(f => `<li>${escapeHtml(f.filename || "")} <small>(${f.size || "?"} bytes, SHA-256: ${(f.sha256 || "").slice(0,12)}…)</small></li>`).join("");
-  const resultSummary = ev.result_summary ? JSON.stringify(ev.result_summary, null, 2) : "—";
+
+  const rs = ev.result_summary || {};
+  const summaryHtml = rs.risk_count != null
+    ? `<div class="detail-row"><span class="detail-label">Risk Count</span><span>${rs.risk_count}</span></div>
+       <div class="detail-row"><span class="detail-label">Manual Scoring</span><span>${rs.manual_scoring_required ? "Required" : "Not required"}</span></div>`
+    : `<pre class="detail-summary">${escapeHtml(JSON.stringify(rs, null, 2))}</pre>`;
+
+  const risks = rs.risks || [];
+  const riskTableHtml = risks.length > 0 ? `
+    <div class="detail-section detail-full-width">
+      <h4>Risk Register (${risks.length} risk${risks.length !== 1 ? "s" : ""})</h4>
+      <div class="detail-risk-table-wrap">
+        <table class="detail-risk-table">
+          <thead>
+            <tr>
+              <th>ID</th><th>Category</th><th>Risk Name</th><th>Type</th>
+              <th>Source</th><th>Confidence</th><th>Probability</th><th>Schedule Impact</th><th>Risk Score</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${risks.map(r => {
+              const prob = r.current_probability || 0;
+              const sched = r.current_schedule || 0;
+              const score = prob && sched ? prob * sched : "—";
+              const probLabel = prob ? `${prob} — ${SCORE_LABELS[prob] || ""}` : "—";
+              const schedLabel = sched ? `${sched} — ${SCORE_LABELS[sched] || ""}` : "—";
+              const confPct = r.confidence != null ? Math.round((r.confidence || 0) * 100) + "%" : "—";
+              return `<tr>
+                <td>${escapeHtml(r.id || "")}</td>
+                <td>${escapeHtml(r.category || "")}</td>
+                <td>${escapeHtml(r.risk_name || "")}</td>
+                <td>${escapeHtml(r.type || "")}</td>
+                <td>${escapeHtml(r.source_sheet || "")}</td>
+                <td style="text-align:center">${confPct}</td>
+                <td>${probLabel}</td>
+                <td>${schedLabel}</td>
+                <td style="font-weight:700;text-align:center">${score}</td>
+              </tr>`;
+            }).join("")}
+          </tbody>
+        </table>
+      </div>
+    </div>` : "";
+
+  // Build activities table for IMS Generator runs
+  const projectDetails = rs.project_details || [];
+  const imsTableHtml = projectDetails.length > 0 ? projectDetails.map(proj => {
+    const activities = proj.activities || [];
+    if (!activities.length) return "";
+    return `
+      <div class="detail-section detail-full-width">
+        <h4>Generated Activities — ${escapeHtml(proj.project_code || "")} (${proj.row_count || 0} total, showing ${activities.length})</h4>
+        <div class="detail-activities-table-wrap">
+          <table class="detail-activities-table">
+            <thead>
+              <tr>
+                <th>Activity ID</th><th>Original PDF Name</th><th>Activity Name</th><th>Status</th><th>Constraint</th><th>Constraint Date</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${activities.map(a => `<tr>
+                <td>${escapeHtml(a.task_code || "")}</td>
+                <td>${escapeHtml(a.pdf_activity_name || "")}</td>
+                <td>${escapeHtml(a.task_name || "")}</td>
+                <td>${escapeHtml(a.status_code || "")}</td>
+                <td>${escapeHtml(a.cstr_type || "")}</td>
+                <td>${escapeHtml(a.cstr_date || "")}</td>
+              </tr>`).join("")}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+  }).join("") : "";
+
   return `<div class="activity-detail-grid">
     <div class="detail-section">
       <h4>Run Information</h4>
@@ -1203,15 +1284,19 @@ function renderActivityDetailHtml(ev) {
       <div class="detail-row"><span class="detail-label">Completed At</span><span>${completed}</span></div>
       <div class="detail-row"><span class="detail-label">Duration</span><span>${duration}</span></div>
     </div>
-    <div class="detail-section">
-      <h4>Input Files</h4>
-      ${inputFiles ? `<ul class="detail-file-list">${inputFiles}</ul>` : "<p>No input files recorded.</p>"}
+    <div class="detail-right-col">
+      <div class="detail-section">
+        <h4>Input Files</h4>
+        ${inputFiles ? `<ul class="detail-file-list">${inputFiles}</ul>` : "<p>No input files recorded.</p>"}
+      </div>
+      <div class="detail-section">
+        <h4>Result Summary</h4>
+        ${summaryHtml}
+      </div>
     </div>
-    <div class="detail-section">
-      <h4>Result Summary</h4>
-      <pre class="detail-summary">${resultSummary}</pre>
-    </div>
-    ${ev.error_message ? `<div class="detail-section"><h4>Error</h4><div class="detail-error">${escapeHtml(ev.error_message)}</div></div>` : ""}
+    ${imsTableHtml}
+    ${riskTableHtml}
+    ${ev.error_message ? `<div class="detail-section detail-full-width"><h4>Error</h4><div class="detail-error">${escapeHtml(ev.error_message)}</div></div>` : ""}
   </div>`;
 }
 
