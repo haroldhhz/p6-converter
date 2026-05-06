@@ -7,6 +7,7 @@ import os
 import re
 import json
 import logging
+from collections import Counter
 from pathlib import Path
 from typing import Optional, Any, Union
 from difflib import SequenceMatcher
@@ -392,10 +393,12 @@ The PDF text extraction may miss or confuse Activity Names, so cross-reference w
 {kb_block}For each activity found, extract:
 1. Activity ID (from PDF) - REQUIRED
 2. Activity Name (from PDF) - REQUIRED, use table data to find the correct name
-3. Start Date: use Actual Start if the activity is completed or in-progress; use Planned/Forecast/Baseline Start if not started. Always populate this field when any start date is visible (format: YYYY-MM-DD or MM/DD/YYYY)
-4. Finish Date: use Actual Finish if the activity is completed; use Planned/Forecast/Baseline Finish if not started. Always populate this field when any finish date is visible (format: YYYY-MM-DD or MM/DD/YYYY)
+3. Start Date: Extract the raw date value from the PDF exactly as it appears, preserving any leading/trailing letter 'A' (e.g. "A 01/15/2026" or "01/15/2026A"). Always populate this field when any start date is visible.
+4. Finish Date: Extract the raw date value from the PDF exactly as it appears, preserving any leading/trailing letter 'A' (e.g. "A 01/15/2026" or "01/15/2026A"). Always populate this field when any finish date is visible.
 5. Percent Complete (0-100)
 6. Status (if visible)
+
+P6 ACTUAL DATE CONVENTION: In some P6 schedules (especially those without a Status column), a letter 'A' attached to a date marks it as an "Actual" date — meaning that date has already occurred. Examples: "A 12/15/2025" (prefix), "12/15/2025A" (suffix), "12/15/2025 A" (space suffix). When you see dates with 'A' markers, preserve them verbatim in act_start_date / act_end_date so the system can detect them.
 
 Standard reference milestones for matching (some PDF activities may match these):
 {ref_list}
@@ -409,7 +412,6 @@ IMPORTANT RULES:
   * "Contract Execution", "GC Award", "Planning Permit", "Design Complete"
   * "Power On", "Weather Tight", "L1/L2/L3 Commissioning", "RFS"
   * Phase-specific: "-P1", "-P2", "-P3" suffix activities
-- Date formats: prefer YYYY-MM-DD, accept MM/DD/YYYY
 - For Percent Complete, use integer 0-100
 - If an activity cannot be matched to standard reference, still include it (match_type: "no_match")
 - Return ONLY valid JSON array, no markdown code fences or other text
@@ -419,8 +421,8 @@ Output format (JSON array):
   {{
     "pdf_activity_id": "...",
     "pdf_activity_name": "...",
-    "act_start_date": "YYYY-MM-DD",
-    "act_end_date": "YYYY-MM-DD",
+    "act_start_date": "raw date from PDF, e.g. A 12/15/2025 or 12/15/2025A or 2025-12-15",
+    "act_end_date": "raw date from PDF, e.g. A 12/15/2025 or 12/15/2025A or 2025-12-15",
     "complete_pct": 0-100,
     "status": "...",
     "matched_std_id": "... or null",
@@ -1085,6 +1087,20 @@ def expand_synonyms(text: str) -> set[str]:
     return expanded
 
 
+# Gate-only aliases for cases where the PDF uses a completely different word than the standard.
+# Kept intentionally small — the gate derives key terms from the standard names dynamically.
+_GATE_ALIASES: dict[str, list[str]] = {
+    "contractors": ["construction", "mobili"],   # SOS-S "Start on Site (Contractors)"
+    "ist":         ["commission", "substantial"], # L5CX-F "Complete L5/IST"
+    "piling":      ["foundation", "excavation"], # FND-S "Foundations Start (including piling)"
+}
+
+_METRO_CODE_PATTERN = re.compile(r'[A-Z]{2,4}-\d{2}(?:-\d{2})?(?:-[A-Z]{2,5})?', re.IGNORECASE)
+
+def _strip_metro_codes(text: str) -> str:
+    """Remove metro/project codes like PNQ-26-01, QTS-1030 from text before word matching."""
+    return _METRO_CODE_PATTERN.sub(' ', text)
+
 def _normalize_for_matching(text: str) -> str:
     """
     Aggressively normalize text for matching.
@@ -1131,6 +1147,49 @@ def _normalize_for_matching(text: str) -> str:
     text = re.sub(r'\s+', ' ', text).strip()
     
     return text
+
+
+def _get_distinctive_terms(std_name: str, word_freq: Counter, common_threshold: float) -> list[str]:
+    """
+    Return words from std_name sorted by rarity across standard activities (most distinctive first).
+    Excludes function words and words that appear in more than common_threshold activities
+    (e.g. "complete", "start" appear everywhere and are not useful discriminators).
+    Punctuation is stripped so "(Contractors)" becomes "contractors".
+    """
+    _FUNCTION_WORDS = frozenset({
+        "the", "a", "an", "of", "to", "and", "or", "for", "in", "by",
+        "at", "with", "on", "as", "&", "including", "applicable",
+        # "site" is too ambiguous (construction site vs. building area vs. delivery location)
+        # — SOS-S already has "contractors" as a more distinctive gate term.
+        "site",
+    })
+    seen: set[str] = set()
+    words: list[str] = []
+    for raw in _normalize_for_matching(std_name).split():
+        # Strip surrounding punctuation so "(contractors)" → "contractors"
+        w = re.sub(r'^[^a-z0-9]+|[^a-z0-9]+$', '', raw.lower())
+        if not w or w in _FUNCTION_WORDS or len(w) < 2 or w in seen:
+            continue
+        # Use raw word's freq first; fall back to cleaned word's freq
+        freq = word_freq.get(raw, word_freq.get(w, 0))
+        if freq > common_threshold:
+            continue
+        seen.add(w)
+        words.append(w)
+    words.sort(key=lambda w: word_freq.get(w, 0))
+    return words
+
+
+def _gate_passes(pdf_name_lower: str, std_name: str, word_freq: Counter, common_threshold: float) -> bool:
+    """
+    Return True if pdf_name contains at least one distinctive keyword from std_name.
+    Skips scoring entirely for candidates with no semantic overlap.
+    """
+    for term in _get_distinctive_terms(std_name, word_freq, common_threshold)[:3]:
+        aliases = _GATE_ALIASES.get(term, [term])
+        if any(alias in pdf_name_lower for alias in aliases):
+            return True
+    return False
 
 
 def match_by_id_suffix(pdf_id: str, standard_df: pd.DataFrame, project_code: Optional[str] = None) -> tuple[Optional[str], Optional[str], float]:
@@ -1222,27 +1281,41 @@ def fuzzy_match(
     """
     pdf_id_normalized = normalize_activity_id(pdf_id)
     pdf_name_normalized = _normalize_for_matching(pdf_name)
-    
+
+    # Pre-compute word frequency across all standard names (drives the distinctive-term gate)
+    all_std_words: list[str] = []
+    for name in standard_df["task_name"]:
+        all_std_words.extend(_normalize_for_matching(name).split())
+    word_freq = Counter(all_std_words)
+    # Words appearing in >20% of standard activities are too common to be distinctive
+    common_threshold = len(standard_df) * 0.20
+
     # Expand PDF name with synonyms for better matching
     pdf_name_words = expand_synonyms(pdf_name_normalized)
-    
-    candidates: list[tuple[str, str, float, float, float]] = []  # (std_id, std_name, id_score, name_score, combined)
-    
+
+    candidates: list[tuple[str, str, float, float, float, float, float]] = []  # (std_id, std_name, id_score, name_score, combined, keyword_score, overlap_score)
+
     for _, row in standard_df.iterrows():
         std_id = row["task_code"]
         std_name = row["task_name"]
-        
+
+        # Gate: skip candidates whose distinctive key terms don't appear in the PDF name.
+        # This prevents false-positive matches caused by common words like "complete" or "start".
+        if not _gate_passes(pdf_name_normalized, std_name, word_freq, common_threshold):
+            candidates.append((std_id, std_name, 0.0, 0.0, 0.0, 0.0, 0.0))
+            continue
+
         # Calculate ID similarity
         std_id_normalized = normalize_activity_id(std_id)
         id_score = SequenceMatcher(None, pdf_id_normalized, std_id_normalized).ratio()
-        
+
         # Calculate name similarity with multiple methods
         std_name_normalized = _normalize_for_matching(std_name)
         std_name_words = expand_synonyms(std_name_normalized)
-        
+
         # Method 1: Token sort ratio
         token_score = token_sort_ratio(pdf_name_normalized, std_name_normalized)
-        
+
         # Method 2: Word overlap (important for milestone matching)
         if pdf_name_words and std_name_words:
             overlap = len(pdf_name_words & std_name_words)
@@ -1250,13 +1323,13 @@ def fuzzy_match(
             overlap_score = overlap / max_words if max_words > 0 else 0
         else:
             overlap_score = 0
-        
+
         # Method 3: Check if key milestone keywords match
         keyword_score = 0
-        
+
         pdf_lower = pdf_name_normalized.lower()
         std_lower = std_name_normalized.lower()
-        
+
         # All milestone keywords from Lease Schedule Spec pages 6-8
         key_keywords = {
             # Contract/Milestones
@@ -1292,53 +1365,78 @@ def fuzzy_match(
             "containment": ["containment", "secure", "security"],
             "forecast": ["forecast", "msft", "mrfs"],
         }
-        
-        for key, synonyms in key_keywords.items():
+
+        for _, synonyms in key_keywords.items():
             for syn in synonyms:
                 if syn in pdf_lower and syn in std_lower:
                     keyword_score += 0.15
                 elif syn in pdf_lower or syn in std_lower:
                     keyword_score += 0.05
-        
+
         # Name score = weighted combination of token + overlap + keyword
         name_score = (token_score * 0.25) + (overlap_score * 0.30) + (keyword_score * 0.30)
-        
+
         # Combined score (used when both ID and name contribute)
         combined_score = (id_score * 0.15) + (name_score * 0.85)
-        
-        # Track both ID and name scores separately
-        candidates.append((std_id, std_name, id_score, name_score, combined_score))
+
+        candidates.append((std_id, std_name, id_score, name_score, combined_score, keyword_score, overlap_score))
     
     # Sort by: 1) dual-match bonus, 2) combined score, 3) name score
     # Dual-match = both id_score > 0.2 AND name_score > 0.5
     def sort_key(c):
-        std_id, std_name, id_score, name_score, combined = c
+        std_id, std_name, id_score, name_score, combined, _kw, _ov = c
         is_dual_match = (id_score > 0.2 and name_score > 0.5)
         # Prioritize dual matches, then by combined score
         return (1 if is_dual_match else 0, combined, name_score)
-    
+
+    # Find best match using two passes:
+    # Pass 1 — Overlap shortcut for QTS/DFW-style IDs where id_score is always low.
+    #   Uses min-denominator stripped overlap so short standard names aren't drowned
+    #   out by long PDF names (e.g. "DH 1100 Early Access (9/1/25)..." vs "Early Access Provided").
+    pdf_name_stripped = _normalize_for_matching(_strip_metro_codes(pdf_name))
+
+    for std_id, std_name, id_score, name_score, combined, kw_score, ov_score in sorted(
+        candidates, key=lambda c: c[3], reverse=True
+    ):
+        if id_score < 0.45 and name_score > 0.0:
+            # Compute stripped-word overlap (metro codes removed from both sides)
+            std_name_stripped_words = set(_normalize_for_matching(_strip_metro_codes(std_name)).split())
+            pdf_name_stripped_words = set(pdf_name_stripped.split())
+            if pdf_name_stripped_words and std_name_stripped_words:
+                stripped_overlap = len(pdf_name_stripped_words & std_name_stripped_words)
+                # Use min denominator: measures coverage of the shorter name's words
+                stripped_min = min(len(pdf_name_stripped_words), len(std_name_stripped_words))
+                stripped_ov = stripped_overlap / stripped_min if stripped_min > 0 else 0.0
+            else:
+                stripped_ov = ov_score
+
+            # Condition A: moderate keyword signal + good stripped-word overlap
+            if kw_score >= 0.15 and stripped_ov >= 0.20:
+                return std_id, std_name, max(name_score, 0.65)
+
+            # Condition B: strong keyword signal + modest raw overlap
+            if kw_score >= 0.40 and ov_score >= 0.20:
+                return std_id, std_name, max(name_score, 0.65)
+
+    # Pass 2 — Standard combined/name score selection (sorted order)
     # Sort candidates (highest priority first)
     candidates.sort(key=sort_key, reverse=True)
-    
-    # Find best match
-    for std_id, std_name, id_score, name_score, combined in candidates:
+
+    for std_id, std_name, id_score, name_score, combined, *_ in candidates:
         # If require_dual_match, only accept if both ID and name contribute meaningfully
         if require_dual_match:
             if id_score <= 0.2 or name_score <= 0.5:
                 continue
-        
-        # Check minimum thresholds
-        # Name score must be >= threshold for name-only matches
-        # Combined score for dual matches
+
         if id_score > 0.2 and name_score > 0.5:
-            # Dual match: use combined score
+            # Dual match: ID and name both contribute — use combined score
             if combined >= threshold:
                 return std_id, std_name, combined
         else:
-            # Name-only match: require name_score >= threshold
+            # Standard name-only threshold for recognisable COLO IDs
             if name_score >= threshold:
                 return std_id, std_name, name_score
-    
+
     return None, None, 0.0
 
 
