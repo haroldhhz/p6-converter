@@ -2008,3 +2008,140 @@ body[data-visible-slots="3"] .project-slot {
 }
 .msal-btn:hover { background: #14305a; }
 .ms-icon { width: 20px; height: 20px; }
+
+/* ─── Risk Dashboard ───────────────────────────────────────────────────────── */
+
+.dashboard-filter-bar {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.25rem;
+  align-items: flex-end;
+}
+.dashboard-filter-bar .filter-group { display: flex; flex-direction: column; gap: 0.3rem; }
+.dashboard-filter-bar label { font-size: 0.72rem; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em; }
+.dashboard-filter-bar select {
+  padding: 0.4rem 0.65rem;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 0.83rem;
+  background: #fff;
+  min-width: 130px;
+}
+.dashboard-filter-bar select:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 1rem;
+  font-size: 0.83rem;
+  color: #64748b;
+  flex-wrap: wrap;
+}
+.crumb { cursor: pointer; color: #1a3c6e; font-weight: 600; }
+.crumb:hover { text-decoration: underline; }
+.crumb.active { color: #334155; cursor: default; font-weight: 400; }
+.crumb-sep { color: #cbd5e1; user-select: none; }
+
+.kpi-row {
+  display: flex;
+  gap: 0.85rem;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+}
+.kpi-card {
+  flex: 1;
+  min-width: 110px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 1rem 1rem 0.75rem;
+  text-align: center;
+}
+.kpi-value {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: #1a3c6e;
+  line-height: 1.1;
+}
+.kpi-label {
+  font-size: 0.7rem;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-top: 0.3rem;
+}
+.kpi-card.kpi-critical .kpi-value { color: #dc2626; }
+.kpi-card.kpi-high .kpi-value     { color: #ea580c; }
+.kpi-card.kpi-medium .kpi-value   { color: #d97706; }
+
+.dashboard-section { margin-top: 1.5rem; }
+.dashboard-section.fade-enter { animation: dashFadeIn 0.2s ease; }
+@keyframes dashFadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.dashboard-section-title {
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #1a3c6e;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.heatmap-table { width: 100%; border-collapse: collapse; font-size: 0.83rem; }
+.heatmap-table th {
+  background: #1a3c6e;
+  color: #fff;
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.heatmap-table td { padding: 0.45rem 0.75rem; border-bottom: 1px solid #e2e8f0; }
+.heatmap-table tbody tr { cursor: pointer; transition: background 0.12s; }
+.heatmap-table tbody tr:hover { background: #eff6ff; }
+.heatmap-table .col-num { text-align: center; }
+
+.score-low      { color: #16a34a; font-weight: 700; }
+.score-med      { color: #d97706; font-weight: 700; }
+.score-high     { color: #ea580c; font-weight: 700; }
+.score-critical { color: #dc2626; font-weight: 700; }
+
+.overview-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 1rem;
+}
+.overview-card {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 1.1rem 1.25rem;
+  cursor: pointer;
+  transition: box-shadow 0.15s, transform 0.15s;
+}
+.overview-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.10); transform: translateY(-2px); }
+.overview-card-name { font-weight: 700; color: #1a3c6e; margin-bottom: 0.5rem; font-size: 0.9rem; }
+.overview-card-stats { display: flex; flex-wrap: wrap; gap: 0.5rem; font-size: 0.76rem; color: #64748b; }
+.overview-card-stat { background: #f1f5f9; border-radius: 4px; padding: 0.15rem 0.45rem; }
+.overview-card-stat.stat-critical { background: #fee2e2; color: #dc2626; font-weight: 700; }
+
+.dashboard-loading {
+  text-align: center;
+  padding: 4rem 2rem;
+  color: #64748b;
+  font-size: 0.9rem;
+}
+.dashboard-empty {
+  text-align: center;
+  padding: 4rem 2rem;
+  color: #94a3b8;
+}
+.dashboard-empty .placeholder-icon { font-size: 2.5rem; margin-bottom: 0.75rem; }
+.dashboard-empty .placeholder-title { font-weight: 600; color: #64748b; margin-bottom: 0.4rem; }

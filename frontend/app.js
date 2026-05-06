@@ -700,6 +700,7 @@ function showView(viewId) {
     if (rpc && !rpc.value) rpc.value = sharedProjectCode;
   }
   if (viewId === "admin") loadActivityLog();
+  if (viewId === "dashboard") loadDashboard();
 }
 
 document.querySelectorAll(".nav-item").forEach(item => {
@@ -1308,6 +1309,312 @@ document.getElementById("activityDetailModal")?.addEventListener("click", (e) =>
     document.getElementById("activityDetailModal").classList.add("hidden");
   }
 });
+
+// ─── Risk Dashboard ─────────────────────────────────────────────────────────
+
+let dashboardData = null;
+let dashboardLevel = "portfolio";   // portfolio | region | subregion | metro
+let dashboardPath = [];             // [{level, name}, ...]
+
+function _dashEl(id) { return document.getElementById(id); }
+
+async function loadDashboard() {
+  if (dashboardData) { renderDashboard(); return; }
+
+  _dashEl("dashboardLoading").classList.remove("hidden");
+  _dashEl("dashboardEmpty").classList.add("hidden");
+  _dashEl("dashboardHeatmap").classList.add("hidden");
+  _dashEl("dashboardOverview").classList.add("hidden");
+
+  try {
+    const res = await fetch(`${API_BASE}/api/dashboard/risks`, { headers: authHeaders() });
+    if (!res.ok) throw new Error(res.status);
+    dashboardData = await res.json();
+    _populateDashboardFilters(dashboardData.filters || {});
+    _wireDashboardFilters();
+  } catch {
+    _dashEl("dashboardLoading").classList.add("hidden");
+    _dashEl("dashboardEmpty").classList.remove("hidden");
+    return;
+  }
+  renderDashboard();
+}
+
+function _populateDashboardFilters(filters) {
+  const add = (selId, items) => {
+    const sel = _dashEl(selId);
+    if (!sel) return;
+    while (sel.options.length > 1) sel.remove(1);
+    (items || []).forEach(v => {
+      const opt = document.createElement("option");
+      opt.value = opt.textContent = v;
+      sel.appendChild(opt);
+    });
+  };
+  add("dashboardRegion", filters.regions);
+  add("dashboardSubRegion", filters.subRegions);
+  add("dashboardMetro", filters.metros);
+}
+
+function _wireDashboardFilters() {
+  const lvlSel = _dashEl("dashboardViewLevel");
+  const regSel = _dashEl("dashboardRegion");
+  const srSel  = _dashEl("dashboardSubRegion");
+  const metSel = _dashEl("dashboardMetro");
+  if (!lvlSel) return;
+
+  const updateDisabled = () => {
+    const lvl = lvlSel.value;
+    // Portfolio: all disabled
+    // Region: Region enabled, SubRegion enabled (to select subregion), Metro disabled
+    // SubRegion: Region & SubRegion enabled, Metro disabled
+    // Metro: all enabled
+    regSel.disabled = lvl === "portfolio";
+    srSel.disabled  = lvl === "portfolio";
+    metSel.disabled = lvl !== "metro";
+  };
+
+  lvlSel.addEventListener("change", () => { updateDisabled(); _applyFilterDropdowns(); });
+  [regSel, srSel, metSel].forEach(s => s?.addEventListener("change", _applyFilterDropdowns));
+  updateDisabled();
+}
+
+function _applyFilterDropdowns() {
+  // Reset drill-down path and re-render using dropdown selections
+  dashboardPath = [];
+  const lvl = _dashEl("dashboardViewLevel")?.value || "portfolio";
+  const reg = _dashEl("dashboardRegion")?.value  || "";
+  const sr  = _dashEl("dashboardSubRegion")?.value || "";
+  const met = _dashEl("dashboardMetro")?.value  || "";
+
+  if (lvl === "portfolio") {
+    dashboardLevel = "portfolio";
+  } else if (lvl === "region" && reg) {
+    dashboardLevel = "region";
+    dashboardPath = [{ level: "portfolio", name: reg }];
+  } else if (lvl === "subregion" && sr) {
+    dashboardLevel = "subregion";
+    dashboardPath = [{ level: "portfolio", name: reg }, { level: "region", name: sr }];
+  } else if (lvl === "metro" && met) {
+    dashboardLevel = "metro";
+    dashboardPath = [
+      { level: "portfolio", name: reg },
+      { level: "region",    name: sr  },
+      { level: "subregion", name: met },
+    ];
+  }
+  renderDashboard();
+}
+
+function renderDashboard() {
+  if (!dashboardData) return;
+  const { risks = [], aggregates = {} } = dashboardData;
+
+  let rows, visibleRisks;
+  switch (dashboardLevel) {
+    case "region": {
+      const rName = dashboardPath[0]?.name;
+      visibleRisks = risks.filter(r => r.region === rName);
+      const srNames = new Set(visibleRisks.map(r => r.subRegion).filter(Boolean));
+      rows = (aggregates.bySubRegion || []).filter(sr => srNames.has(sr.name));
+      break;
+    }
+    case "subregion": {
+      const srName = dashboardPath[1]?.name || dashboardPath[0]?.name;
+      visibleRisks = risks.filter(r => r.subRegion === srName);
+      const mNames = new Set(visibleRisks.map(r => r.metro).filter(Boolean));
+      rows = (aggregates.byMetro || []).filter(m => mNames.has(m.name));
+      break;
+    }
+    case "metro": {
+      const mName = dashboardPath[dashboardPath.length - 1]?.name;
+      visibleRisks = risks.filter(r => r.metro === mName);
+      rows = [];
+      break;
+    }
+    default:
+      visibleRisks = risks;
+      rows = aggregates.byRegion || [];
+  }
+
+  _dashEl("dashboardLoading").classList.add("hidden");
+
+  if (!visibleRisks.length && !rows.length) {
+    _dashEl("dashboardEmpty").classList.remove("hidden");
+    _dashEl("dashboardHeatmap").classList.add("hidden");
+    _dashEl("dashboardOverview").classList.add("hidden");
+    renderKpisDash([]);
+    renderBreadcrumb();
+    return;
+  }
+  _dashEl("dashboardEmpty").classList.add("hidden");
+
+  renderKpisDash(visibleRisks);
+  renderBreadcrumb();
+  renderHeatmapDash(rows, visibleRisks);
+  renderOverviewDash(rows);
+}
+
+function renderKpisDash(risks) {
+  const total    = risks.length;
+  // Use 'probability' and 'impact' from risk records (not current_probability/current_schedule)
+  const critical = risks.filter(r => (r.probability||0) >= 5 || (r.impact||0) >= 5).length;
+  const scores   = risks.map(r => (r.probability||0) * (r.impact||0));
+  const high     = scores.filter(s => s >= 20).length;
+  const med      = scores.filter(s => s >= 12 && s < 20).length;
+  const low      = scores.filter(s => s > 0 && s < 12).length;
+  const avg      = scores.length ? (scores.reduce((a,b) => a+b, 0) / scores.length).toFixed(1) : "—";
+
+  const set = (id, v) => { const el = _dashEl(id); if (el) el.textContent = v; };
+  set("kpiTotal", total);
+  set("kpiCritical", critical);
+  set("kpiHigh", high);
+  set("kpiMedium", med);
+  set("kpiLow", low);
+  set("kpiAvg", avg);
+}
+
+function renderBreadcrumb() {
+  const bc = _dashEl("dashboardBreadcrumb");
+  if (!bc) return;
+  const crumbs = [{ label: "Portfolio", idx: -1 }, ...dashboardPath.map((p, i) => ({ label: p.name, idx: i }))];
+  bc.innerHTML = crumbs.map((c, i) => {
+    const isLast = i === crumbs.length - 1;
+    const sep = i > 0 ? '<span class="crumb-sep">›</span>' : "";
+    return `${sep}<span class="crumb ${isLast ? "active" : ""}" data-idx="${c.idx}">${escapeHtml(c.label)}</span>`;
+  }).join("");
+
+  bc.querySelectorAll(".crumb:not(.active)").forEach(el => {
+    el.addEventListener("click", () => {
+      const idx = parseInt(el.dataset.idx);
+      if (idx === -1) {
+        dashboardPath = [];
+        dashboardLevel = "portfolio";
+      } else {
+        dashboardPath = dashboardPath.slice(0, idx + 1);
+        const levels = ["portfolio", "region", "subregion", "metro"];
+        dashboardLevel = levels[Math.min(idx + 1, levels.length - 1)];
+      }
+      renderDashboard();
+    });
+  });
+}
+
+function _scoreClass(score) {
+  if (score >= 25) return "score-critical";
+  if (score >= 16) return "score-high";
+  if (score >= 9)  return "score-med";
+  return "score-low";
+}
+
+function renderHeatmapDash(rows, visibleRisks) {
+  const section = _dashEl("dashboardHeatmap");
+  const body    = _dashEl("heatmapBody");
+  const title   = _dashEl("heatmapTitle");
+  if (!section || !body) return;
+
+  const levelLabels = { portfolio: "Region", region: "Sub-Region", subregion: "City / Metro", metro: "Individual Risks" };
+  if (title) title.textContent = `Risk Register — ${levelLabels[dashboardLevel] || "All"}`;
+
+  if (dashboardLevel === "metro") {
+    // Show individual risk rows instead of aggregates
+    body.innerHTML = visibleRisks.map(r => {
+      const prob = r.probability || r.current_probability || 0;
+      const impact = r.impact || r.current_schedule || 0;
+      const score = prob * impact;
+      const date = r.assessmentDate || r.assessment_date || "—";
+      return `<tr>
+        <td>${escapeHtml(r.projectId || "")}</td>
+        <td>${escapeHtml(r.category || "")}</td>
+        <td>${escapeHtml(r.risk_name || r.name || "")}</td>
+        <td class="col-num">${prob || "—"}</td>
+        <td class="col-num">${impact || "—"}</td>
+        <td class="col-num ${score ? _scoreClass(score) : ""}">${score || "—"}</td>
+        <td>${date}</td>
+      </tr>`;
+    }).join("") || `<tr><td colspan="7" style="text-align:center;color:#94a3b8">No risks recorded</td></tr>`;
+
+    // Update headers for metro view - now with Project and Date columns
+    section.querySelector("thead tr").innerHTML = `
+      <th>Project</th><th>Category</th><th>Risk Name</th>
+      <th class="col-num">Prob</th><th class="col-num">Impact</th>
+      <th class="col-num">Score</th><th>Date</th>`;
+  } else {
+    // Aggregate rows
+    section.querySelector("thead tr").innerHTML = `
+      <th>Location</th>
+      <th class="col-num">Risks</th><th class="col-num">Projects</th>
+      <th class="col-num">Avg Prob</th><th class="col-num">Avg Impact</th>
+      <th class="col-num">Avg Score</th><th class="col-num">Critical</th>`;
+
+    body.innerHTML = rows.map(row => {
+      const avgScore = typeof row.avgScore === "number" ? (row.avgScore * 6).toFixed(1) : "—";
+      const scoreNum = typeof row.avgScore === "number" ? row.avgScore * 6 : 0;
+      return `<tr data-name="${escapeHtml(row.name || "")}">
+        <td><strong>${escapeHtml(row.name || "")}</strong></td>
+        <td class="col-num">${row.riskCount ?? "—"}</td>
+        <td class="col-num">${row.projectCount ?? "—"}</td>
+        <td class="col-num">${typeof row.avgProbability === "number" ? row.avgProbability.toFixed(1) : "—"}</td>
+        <td class="col-num">${typeof row.avgImpact === "number" ? row.avgImpact.toFixed(1) : "—"}</td>
+        <td class="col-num ${scoreNum ? _scoreClass(scoreNum) : ""}">${avgScore}</td>
+        <td class="col-num">${row.criticalCount ?? "—"}</td>
+      </tr>`;
+    }).join("") || `<tr><td colspan="7" style="text-align:center;color:#94a3b8">No data</td></tr>`;
+
+    body.querySelectorAll("tr[data-name]").forEach(tr => {
+      tr.addEventListener("click", () => drillDownDash(tr.dataset.name));
+    });
+  }
+
+  section.classList.remove("hidden");
+  section.classList.remove("fade-enter");
+  void section.offsetWidth; // force reflow
+  section.classList.add("fade-enter");
+}
+
+function renderOverviewDash(rows) {
+  const section = _dashEl("dashboardOverview");
+  const cards   = _dashEl("overviewCards");
+  const title   = _dashEl("overviewTitle");
+  if (!section || !cards || dashboardLevel === "metro") {
+    section?.classList.add("hidden");
+    return;
+  }
+
+  if (title) title.textContent = dashboardLevel === "portfolio" ? "Regions" : dashboardLevel === "region" ? "Sub-Regions" : "Cities";
+
+  cards.innerHTML = rows.map(row => {
+    const scoreNum = typeof row.avgScore === "number" ? row.avgScore * 6 : 0;
+    return `<div class="overview-card" data-name="${escapeHtml(row.name || "")}">
+      <div class="overview-card-name">${escapeHtml(row.name || "")}</div>
+      <div class="overview-card-stats">
+        <span class="overview-card-stat">${row.riskCount ?? 0} risks</span>
+        <span class="overview-card-stat">${row.projectCount ?? 0} projects</span>
+        ${row.criticalCount ? `<span class="overview-card-stat stat-critical">⚠ ${row.criticalCount} critical</span>` : ""}
+        ${scoreNum ? `<span class="overview-card-stat">Score: ${scoreNum.toFixed(1)}</span>` : ""}
+      </div>
+    </div>`;
+  }).join("") || "<p style='color:#94a3b8;font-size:0.83rem'>No data available.</p>";
+
+  cards.querySelectorAll(".overview-card[data-name]").forEach(card => {
+    card.addEventListener("click", () => drillDownDash(card.dataset.name));
+  });
+
+  section.classList.remove("hidden");
+  section.classList.remove("fade-enter");
+  void section.offsetWidth;
+  section.classList.add("fade-enter");
+}
+
+function drillDownDash(name) {
+  const levelSeq = ["portfolio", "region", "subregion", "metro"];
+  const nextIdx = levelSeq.indexOf(dashboardLevel) + 1;
+  if (nextIdx >= levelSeq.length) return;
+
+  dashboardPath = [...dashboardPath, { level: dashboardLevel, name }];
+  dashboardLevel = levelSeq[nextIdx];
+  renderDashboard();
+}
 
 // ─── Initialize ─────────────────────────────────────────────────────────────
 

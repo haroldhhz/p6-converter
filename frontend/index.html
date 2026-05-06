@@ -45,6 +45,10 @@
           <span class="nav-icon">⚠️</span>
           <span class="nav-label">Schedule Risk Manager</span>
         </li>
+        <li class="nav-item" data-view="dashboard">
+          <span class="nav-icon">📊</span>
+          <span class="nav-label">Risk Dashboard</span>
+        </li>
         <!-- Admin group — rendered only if user carries the Admin role -->
         <li class="nav-item nav-admin-group" id="adminNavGroup" style="display:none" data-view="admin">
           <span class="nav-icon">🛡️</span>
@@ -275,7 +279,7 @@
               <div class="risk-panel knowledge-upload-panel">
                 <h3 class="panel-title">📤 Upload Construction Risk Register</h3>
                 <p class="panel-desc">
-                  Upload a previous construction risk register (Excel or PDF).
+                  Upload a previous construction risk register (PNG or PDF).
                   The AI uses it alongside the LPSS scores and weight% to calibrate
                   probability and impact for each identified risk.
                 </p>
@@ -353,6 +357,136 @@
           </footer>
         </div>
       </div><!-- /view-risk -->
+
+      <!-- ── View: Risk Dashboard ─────────────────────────────────────────── -->
+      <div id="view-dashboard" class="view">
+        <div class="workspace-content">
+
+          <header class="view-header">
+            <div>
+              <h2 class="view-title">Risk Dashboard</h2>
+              <p class="subtitle">Portfolio-wide risk overview with regional comparisons.</p>
+            </div>
+          </header>
+
+          <main>
+            <!-- Filter Bar -->
+            <div class="dashboard-filter-bar">
+              <div class="filter-group">
+                <label>View Level</label>
+                <select id="dashboardViewLevel">
+                  <option value="portfolio">Portfolio</option>
+                  <option value="region">Region</option>
+                  <option value="subregion">SubRegion</option>
+                  <option value="metro">Metro</option>
+                </select>
+              </div>
+              <div class="filter-group">
+                <label>Region</label>
+                <select id="dashboardRegion" disabled>
+                  <option value="">All Regions</option>
+                </select>
+              </div>
+              <div class="filter-group">
+                <label>SubRegion</label>
+                <select id="dashboardSubRegion" disabled>
+                  <option value="">All SubRegions</option>
+                </select>
+              </div>
+              <div class="filter-group">
+                <label>Metro</label>
+                <select id="dashboardMetro" disabled>
+                  <option value="">All Metros</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Breadcrumb -->
+            <div class="breadcrumb" id="dashboardBreadcrumb">
+              <span class="crumb clickable" data-level="portfolio">Portfolio</span>
+            </div>
+
+            <!-- KPI Summary Row -->
+            <div class="kpi-row" id="kpiRow">
+              <div class="kpi-card kpi-total">
+                <div class="kpi-value" id="kpiTotal">0</div>
+                <div class="kpi-label">Total Risks</div>
+                <div class="kpi-context" id="kpiTotalContext">—</div>
+              </div>
+              <div class="kpi-card kpi-critical">
+                <div class="kpi-value" id="kpiCritical">0</div>
+                <div class="kpi-label">Critical</div>
+                <div class="kpi-context">Prob≥5 or Impact≥5</div>
+              </div>
+              <div class="kpi-card kpi-high">
+                <div class="kpi-value" id="kpiHigh">0</div>
+                <div class="kpi-label">High</div>
+                <div class="kpi-context">Max(P,I) = 4</div>
+              </div>
+              <div class="kpi-card kpi-medium">
+                <div class="kpi-value" id="kpiMedium">0</div>
+                <div class="kpi-label">Medium</div>
+                <div class="kpi-context">Max(P,I) = 3</div>
+              </div>
+              <div class="kpi-card kpi-low">
+                <div class="kpi-value" id="kpiLow">0</div>
+                <div class="kpi-label">Low</div>
+                <div class="kpi-context">Max(P,I) ≤ 2</div>
+              </div>
+              <div class="kpi-card kpi-avg">
+                <div class="kpi-value" id="kpiAvg">0.0</div>
+                <div class="kpi-label">Avg Score</div>
+                <div class="kpi-context">P × I / 6</div>
+              </div>
+            </div>
+
+            <!-- Loading State -->
+            <div id="dashboardLoading" class="dashboard-loading">
+              <div class="spinner"></div>
+              <p>Loading risk data…</p>
+            </div>
+
+            <!-- Empty State -->
+            <div id="dashboardEmpty" class="dashboard-empty hidden">
+              <div class="placeholder-icon">📊</div>
+              <p class="placeholder-title">No risk data available</p>
+              <p class="placeholder-sub">Run the Schedule Risk Manager to generate risk data for the dashboard.</p>
+            </div>
+
+            <!-- Comparison Heatmap -->
+            <div id="dashboardHeatmap" class="dashboard-section hidden">
+              <h3 class="section-title" id="heatmapTitle">Average Risk Comparison — By Region</h3>
+              <div class="heatmap-table-wrap">
+                <table class="heatmap-table" id="heatmapTable">
+                  <thead>
+                    <tr>
+                      <th>Location</th>
+                      <th>Risks</th>
+                      <th>Projects</th>
+                      <th>Avg Prob</th>
+                      <th>Avg Impact</th>
+                      <th>Avg Score</th>
+                      <th>Critical</th>
+                    </tr>
+                  </thead>
+                  <tbody id="heatmapBody"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Regional Overview -->
+            <div id="dashboardOverview" class="dashboard-section hidden">
+              <h3 class="section-title" id="overviewTitle">Regional Overview</h3>
+              <div class="overview-cards" id="overviewCards"></div>
+            </div>
+
+          </main>
+
+          <footer class="view-footer">
+            <p>Powered by <strong>Azure AI</strong></p>
+          </footer>
+        </div>
+      </div><!-- /view-dashboard -->
 
       <!-- ── View: Activity Log (Admin) ────────────────────────────────────── -->
       <div id="view-admin" class="view">

@@ -225,15 +225,31 @@ def format_date(val, fmt: str = "%m/%d/%Y %H:%M") -> str:
     return s
 
 
+def _has_actual_marker(date_str: str) -> bool:
+    """Return True if the date string carries a P6 'actual' marker (letter A)."""
+    if not date_str:
+        return False
+    s = date_str.strip()
+    return s.upper().startswith("A ") or s.upper().endswith("A") or s.upper().endswith(" A")
+
+
 def normalize_date_for_output(date_str: str) -> str:
     """
     Normalize date string to MM/DD/YYYY HH:MM format.
     Handles various input formats including YYYY-MM-DD.
+    Strips P6 'actual' markers (leading/trailing letter A) before parsing.
     """
     if not date_str or date_str.strip() in ("", "None", "NaT", "null"):
         return ""
-    
+
     s = date_str.strip()
+    # Strip P6 actual marker: "A 01/15/2026", "01/15/2026A", "01/15/2026 A"
+    if s.upper().startswith("A "):
+        s = s[2:].strip()
+    elif s.upper().endswith(" A"):
+        s = s[:-2].strip()
+    elif s.upper().endswith("A") and len(s) > 1 and not s[-2].isalpha():
+        s = s[:-1].strip()
     
     # Try parsing various date formats
     # Try various date formats including M/D/YY (2-digit year) and M/D/YYYY (1-digit month/day)
@@ -457,7 +473,7 @@ def process_schedule(
     return result_df
 
 
-_CONFIDENCE_THRESHOLD = 0.8  # Minimum confidence to accept any match
+_CONFIDENCE_THRESHOLD = 0.65  # Minimum confidence to accept any match
 
 
 def process_schedule_with_ai_extraction(
@@ -570,7 +586,7 @@ def process_schedule_with_ai_extraction(
 
     if not extracted_data:
         print("Warning: No data extracted from PDF by AI")
-        return pd.DataFrame(columns=P6_COLUMNS), []
+        return pd.DataFrame(columns=P6_COLUMNS), [], []
 
     base_tranche_num = int(tranche.strip().upper().replace("T", "").lstrip("0") or "1")
     year_match = re.search(r'(\d{2})', project_code)
@@ -587,8 +603,12 @@ def process_schedule_with_ai_extraction(
         # Use `or ""` so AI-returned null values don't propagate as None
         pdf_id = activity.get("pdf_activity_id") or ""
         pdf_name = activity.get("pdf_activity_name") or ""
-        act_start_date = normalize_date_for_output(activity.get("act_start_date") or "")
-        act_end_date = normalize_date_for_output(activity.get("act_end_date") or "")
+        raw_start = activity.get("act_start_date") or ""
+        raw_end = activity.get("act_end_date") or ""
+        has_actual_start = _has_actual_marker(raw_start)
+        has_actual_finish = _has_actual_marker(raw_end)
+        act_start_date = normalize_date_for_output(raw_start)
+        act_end_date = normalize_date_for_output(raw_end)
         pdf_status = activity.get("status") or ""
 
         # Skip project-specific MIL-* activities
@@ -640,6 +660,8 @@ def process_schedule_with_ai_extraction(
             "confidence": confidence,
             "act_start_date": act_start_date,
             "act_end_date": act_end_date,
+            "has_actual_start": has_actual_start,
+            "has_actual_finish": has_actual_finish,
             "pdf_status": pdf_status,
             "pdf_tranche": pdf_tranche,
         })
@@ -751,14 +773,41 @@ def process_schedule_with_ai_extraction(
             else:
                 cstr_date = item["act_start_date"] or item["act_end_date"] or ""
 
-            # Actual Start/Finish — only for completed activities
-            if activity_status == "Completed":
+            # Actual Start/Finish — three-case P6 "A" marker logic:
+            # Both dates have "A" → fully completed, use both actuals
+            # Only start has "A" → started but not finished, actual start only (set equal for milestone)
+            # Only finish has "A" → finished, use finish date for both actuals (milestone)
+            # No "A" marker → fall back to status-based logic (Completed sets actuals)
+            _has_a_start = item.get("has_actual_start", False)
+            _has_a_finish = item.get("has_actual_finish", False)
+
+            if _has_a_start and _has_a_finish:
+                # Case 1: both actual — activity is completed
+                activity_status = "Completed"
+                actual_start  = item["act_start_date"] or cstr_date
+                actual_finish = item["act_end_date"] or cstr_date
+                if activity_type == "Start Milestone":
+                    actual_finish = actual_start
+                elif activity_type == "Finish Milestone":
+                    actual_start = actual_finish
+            elif _has_a_start:
+                # Case 2: only start is actual — in progress
+                activity_status = "In Progress"
+                actual_start  = item["act_start_date"] or cstr_date
+                actual_finish = ""
+            elif _has_a_finish:
+                # Case 3: only finish is actual — completed (finish milestone records actual finish)
+                activity_status = "Completed"
+                actual_finish = item["act_end_date"] or cstr_date
+                actual_start  = actual_finish  # set equal so P6 doesn't auto-fill with data date
+            elif activity_status == "Completed":
+                # No "A" marker but status column says Completed
                 if activity_type == "Start Milestone":
                     actual_start  = item["act_start_date"] or cstr_date
-                    actual_finish = actual_start  # set equal so P6 doesn't auto-fill with data date
+                    actual_finish = actual_start
                 elif activity_type == "Finish Milestone":
                     actual_finish = item["act_end_date"] or cstr_date
-                    actual_start  = actual_finish  # set equal so P6 doesn't auto-fill with data date
+                    actual_start  = actual_finish
                 else:
                     actual_start  = item["act_start_date"] or cstr_date
                     actual_finish = item["act_end_date"] or cstr_date

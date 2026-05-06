@@ -229,6 +229,22 @@ async def risk_manager_parse(
 
     duration_ms = int((time.time() - t0) * 1000)
     candidates = result["risks"]
+    
+    # Enrich risks with location data for the dashboard
+    from backend.risk_dashboard_store import resolve_location, enrich_risk_with_location, save_enriched_risks
+    location = resolve_location(project_code)
+    enriched_risks = [enrich_risk_with_location(r, location) for r in candidates]
+    
+    # Save enriched risks to dashboard store (synchronous to ensure completion)
+    try:
+        save_ok = await asyncio.to_thread(
+            save_enriched_risks, project_code, tranches, assessment_date, enriched_risks
+        )
+        if not save_ok:
+            logger.warning("Risk dashboard save returned False for project %s", project_code)
+    except Exception as e:
+        logger.error("Failed to save enriched risks for %s: %s", project_code, e)
+    
     stored_risks = [{k: v for k, v in r.items() if not k.startswith("_")} for r in candidates]
     complete_event(
         event_id=event_id,
@@ -237,6 +253,7 @@ async def risk_manager_parse(
             "risk_count": len(candidates),
             "manual_scoring_required": result.get("manual_scoring_required", False),
             "risks": stored_risks,
+            "location": location,
         },
         duration_ms=duration_ms,
     )
@@ -247,6 +264,7 @@ async def risk_manager_parse(
         "risk_count": len(candidates),
         "risks": candidates,
         "manual_scoring_required": result["manual_scoring_required"],
+        "location": location,
     })
 
 
@@ -713,6 +731,70 @@ async def kb_delete(project_code: str):
     except Exception:
         raise HTTPException(status_code=404, detail=f"No KB entry for {project_code}")
     return JSONResponse({"message": f"KB deleted for {project_code.upper()}"})
+
+
+# ─── Risk Dashboard ──────────────────────────────────────────────────────────
+
+@app.get("/api/dashboard/risks", tags=["Risk Dashboard"])
+async def dashboard_get_risks(request: Request):
+    """
+    Get all enriched risks for the dashboard with aggregations and filter options.
+    """
+    _ = await current_user(request)
+    from backend.risk_dashboard_store import get_all_risks_for_dashboard
+    return JSONResponse(get_all_risks_for_dashboard())
+
+
+@app.post("/api/admin/dashboard/backfill", tags=["Risk Dashboard"])
+async def dashboard_backfill(request: Request):
+    """
+    Backfill the dashboard store with location-enriched risks from all past
+    successful Schedule Risk Manager runs. Safe to run multiple times.
+    """
+    await require_admin(request)
+    from backend.risk_dashboard_store import enrich_risk_with_location, resolve_location, save_enriched_risks
+
+    ef = EventFilter(function_name="schedule_risk_manager", status="success", limit=500)
+    with __import__("backend.activity_store", fromlist=["get_db"]).get_db() as conn:
+        rows, _ = ef.apply(conn)
+
+    backfilled = 0
+    for row in rows:
+        ev = _get_activity_event(row["event_id"])
+        if not ev:
+            continue
+        rs = ev.get("result_summary") or {}
+        risks = rs.get("risks") if isinstance(rs, dict) else None
+        if not risks:
+            continue
+        location = resolve_location(ev.get("project_code", ""))
+        enriched = [enrich_risk_with_location(r, location) for r in risks]
+        save_enriched_risks(
+            ev.get("project_code", ""),
+            ev.get("tranche", ""),
+            "",
+            enriched,
+        )
+        backfilled += 1
+
+    return JSONResponse({"backfilled": backfilled})
+
+
+@app.post("/api/resolve-location", tags=["Risk Dashboard"])
+async def resolve_location_endpoint(request: Request):
+    """
+    Resolve project name to location data using the 4-step resolver.
+    Returns: { projectId, code, region, subRegion, metro, isStandard }
+    """
+    _ = await current_user(request)
+    body = await request.json()
+    project_name = body.get("projectNameRevision", "")
+    
+    if not project_name:
+        raise HTTPException(status_code=400, detail="projectNameRevision is required")
+    
+    from backend.risk_dashboard_store import resolve_location
+    return JSONResponse(resolve_location(project_name))
 
 
 # ─── Admin ────────────────────────────────────────────────────────────────────
