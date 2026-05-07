@@ -176,9 +176,11 @@ def _validate_entra_token(token: str) -> dict:
     if ENTRA_TENANT_ID and ENTRA_TENANT_ID not in iss:
         raise HTTPException(status_code=401, detail="Token issuer not recognised")
 
-    # Audience check
-    aud = payload.get("aud") or payload.get("azp") or ""
-    if ENTRA_CLIENT_ID and aud != ENTRA_CLIENT_ID:
+    # Audience check — accept app-scoped tokens (aud = client_id) and Graph tokens
+    # issued on behalf of our app (azp = client_id, aud = graph endpoint).
+    aud = payload.get("aud") or ""
+    azp = payload.get("azp") or ""
+    if ENTRA_CLIENT_ID and aud != ENTRA_CLIENT_ID and azp != ENTRA_CLIENT_ID:
         raise HTTPException(status_code=401, detail="Token audience not valid for this app")
 
     # Expiry check
@@ -225,6 +227,11 @@ async def validate_entra_user(request: Request) -> AuthenticatedUser:
     email = _extract_email_from_claims(payload) or ""
     name = payload.get("name") or payload.get("preferred_username") or email
     roles = _extract_roles_from_claims(payload)
+
+    # Graph-scoped tokens don't carry app roles — fall back to ADMIN_EMAILS env var.
+    if not roles:
+        admin_emails = [e.strip().lower() for e in os.environ.get("ADMIN_EMAILS", "").split(",") if e.strip()]
+        roles = ["Admin"] if email.lower() in admin_emails else ["User"]
 
     logger.info("Entra user authenticated: %s | roles: %s", email, roles)
 

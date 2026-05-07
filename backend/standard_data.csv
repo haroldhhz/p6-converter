@@ -1,7 +1,7 @@
 task_code,task_name,status_code
 PNQ-26-01-CEX-S,Contract Execution,Completed
 PNQ-26-01-LSP-F,Land/ Site Purchase/ Land Lease,Completed
-PNQ-26-01-PLS-S,Planning Permit Submission,Completed
+PNQ-26-01-PLA-S,Planning Permit Submission,Completed
 PNQ-26-01-PLA-F,Planning Permit Approval/Award,Completed
 PNQ-26-01-USC-F,Utility Supply Contract Signed (Water & Electricity),Completed
 PNQ-26-01-GCA-F,GC Contract Award,Completed
@@ -23,6 +23,13 @@ PNQ-26-01-SUP-S,Superstructure Start,Completed
 PNQ-26-01-L1CX-S,Start L1 Installation & QA/QC (Red Tag),Completed
 PNQ-26-01-L2CX-S,Start L2 QA/QC Ready to Energize (Yellow Tag),Completed
 PNQ-26-01-L3CX-S,Start L3 Testing & Commissioning (Green tag),Not Started
+PNQ-26-01-L1CX-F,Complete L1 Testing (All Red Tags),Not Started
+PNQ-26-01-L2CX-F,Complete L2 Testing (All Yellow Tags),Not Started
+PNQ-26-01-L3CX-F,Complete L3 Commissioning (All Green Tags),Not Started
+PNQ-26-01-L4CX-S,Start L4 Cx (Blue Tag),Not Started
+PNQ-26-01-LLE-F,Long Lead Equipment Orders Complete,Not Started
+PNQ-26-01-FOC-F,Fitout Complete,Not Started
+PNQ-26-01-RNI-F,Ready for Network Install (RNI),Not Started
 PNQ-26-02-EAP-F,Early Access Provided,Not Started
 PNQ-26-02-RFS-F,Ready for Service (RFS),Not Started
 PNQ-26-02-L5CX-F,Complete L5/IST (White Tag),Not Started

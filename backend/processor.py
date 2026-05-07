@@ -533,7 +533,7 @@ def process_schedule_with_ai_extraction(
         ai_confidence = float(activity.get("match_confidence") or activity.get("name_match_confidence") or 0.0)
 
         # Determine final match status using same logic as XLSX output
-        suffix_id, suffix_name, suffix_conf = match_by_id_suffix(pdf_id, standard_df, project_code=project_code)
+        suffix_id, suffix_name, suffix_conf = match_by_id_suffix(pdf_id, standard_df)
         if suffix_id:
             final_matched_id = suffix_id
             final_matched_name = suffix_name
@@ -622,7 +622,7 @@ def process_schedule_with_ai_extraction(
         ai_match_type = activity.get("match_type") or "no_match"
 
         # 1. ID-suffix match
-        suffix_id, suffix_name, suffix_conf = match_by_id_suffix(pdf_id, standard_df, project_code=project_code)
+        suffix_id, suffix_name, suffix_conf = match_by_id_suffix(pdf_id, standard_df)
         if suffix_id:
             matched_id, matched_name, confidence = suffix_id, suffix_name, suffix_conf
         # 2. AI match if it meets the confidence threshold

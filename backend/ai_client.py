@@ -1192,7 +1192,7 @@ def _gate_passes(pdf_name_lower: str, std_name: str, word_freq: Counter, common_
     return False
 
 
-def match_by_id_suffix(pdf_id: str, standard_df: pd.DataFrame, project_code: Optional[str] = None) -> tuple[Optional[str], Optional[str], float]:
+def match_by_id_suffix(pdf_id: str, standard_df: pd.DataFrame) -> tuple[Optional[str], Optional[str], float]:
     """
     Match a PDF activity ID to the standard reference by its acronym suffix.
 
@@ -1210,9 +1210,6 @@ def match_by_id_suffix(pdf_id: str, standard_df: pd.DataFrame, project_code: Opt
     if not pdf_id or "-" not in pdf_id:
         return None, None, 0.0
 
-    # Normalize project_code for comparison (e.g., "FRA63" -> "FRA63")
-    project_prefix = project_code.upper() if project_code else None
-
     # Two-digit phase suffix (e.g. -P13, -P23, -P33) signals an RFS milestone
     rfs_pattern = re.search(r'-P(\d{2,})$', pdf_id, re.IGNORECASE)
     if rfs_pattern:
@@ -1226,35 +1223,18 @@ def match_by_id_suffix(pdf_id: str, standard_df: pd.DataFrame, project_code: Opt
         target_suffix = '-'.join(parts[-2:])   # e.g. CEX-S, L1CX-S, EAP-F
 
     target_suffix_upper = target_suffix.upper()
-    
-    # First pass: look for exact project code match
-    if project_prefix:
-        for _, row in standard_df.iterrows():
-            std_id = row["task_code"].strip().upper()
-            std_parts = std_id.split('-')
-            if len(std_parts) >= 2:
-                std_suffix = '-'.join(std_parts[-2:]).upper()
-                std_project = std_parts[0]  # e.g., "FRA" from "FRA-63-01-CEX-S"
-                # Check if std ID starts with project prefix (FRA-63 vs FRA)
-                if std_suffix == target_suffix_upper and std_project.startswith(project_prefix):
-                    return row["task_code"], row["task_name"], 0.95
-    
-    # Second pass: if no project code match, allow any suffix match with lower confidence
-    # This allows display in analysis results even without project code match
-    fallback_match = None
+
+    # Suffix-only match: the standard always uses PNQ as its project code, while real
+    # project PDFs use different metro codes (BKK, CBR, MEL, etc.).  Matching on the
+    # standard's project prefix would always fail, so we match purely on milestone suffix.
     for _, row in standard_df.iterrows():
         std_parts = row["task_code"].strip().split('-')
         if len(std_parts) >= 2:
             std_suffix = '-'.join(std_parts[-2:]).upper()
             if std_suffix == target_suffix_upper:
-                if project_prefix:
-                    # Has project code filter but this doesn't match - lower confidence
-                    fallback_match = (row["task_code"], row["task_name"], 0.7)
-                else:
-                    # No project code filter - exact match
-                    return row["task_code"], row["task_name"], 0.95
-    
-    return fallback_match if fallback_match else (None, None, 0.0)
+                return row["task_code"], row["task_name"], 0.95
+
+    return None, None, 0.0
 
 
 def fuzzy_match(
