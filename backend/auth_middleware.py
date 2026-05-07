@@ -83,7 +83,7 @@ def _extract_roles_from_claims(claims: dict) -> list[str]:
     defined in the manifest. Other formats require additional Graph API calls
     to resolve and are out of scope for this build.
     """
-    raw = claims.get("roles") or claims.get("scp") or claims.get("wids") or []
+    raw = claims.get("roles") or []
     if isinstance(raw, str):
         return [r.strip() for r in raw.split() if r.strip()]
     return [str(r) for r in raw]
