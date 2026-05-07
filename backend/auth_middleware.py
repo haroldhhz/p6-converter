@@ -281,8 +281,10 @@ async def validate_allowed_user(request: Request) -> AuthenticatedUser:
             name = user_email.split("@")[0].replace(".", " ").title()
             if request.url.hostname in ("localhost", "127.0.0.1"):
                 return AuthenticatedUser(email=user_email, name=name, roles=["Admin"], source="localhost")
+            admin_emails = [e.strip().lower() for e in os.environ.get("ADMIN_EMAILS", "").split(",") if e.strip()]
+            roles = ["Admin"] if user_email in admin_emails else ["User"]
             return AuthenticatedUser(
-                email=user_email, name=name, roles=["User"], source="email"
+                email=user_email, name=name, roles=roles, source="email"
             )
         raise HTTPException(
             status_code=403,
