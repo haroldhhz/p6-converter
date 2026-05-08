@@ -33,7 +33,8 @@ function authHeaders(extra = {}) {
   // Prefer Bearer token if we have a MSAL access token (check FIRST so it's sent even when currentUser is null)
   if (msalAccount && msalAccessToken) {
     h["Authorization"] = `Bearer ${msalAccessToken}`;
-  } else if (currentUser?.email) {
+  }
+  if (currentUser?.email) {
     h["X-User-Email"] = currentUser.email;
   }
   return h;
