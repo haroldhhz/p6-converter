@@ -307,12 +307,18 @@ async def validate_allowed_user(request: Request) -> AuthenticatedUser:
         return user
 
     # 1. Entra ID SSO path
+    _has_bearer = request.headers.get("Authorization", "").startswith("Bearer ")
+    _has_email = bool(request.headers.get("X-User-Email", "").strip())
+    logger.info("AUTH_DEBUG: has_bearer=%s has_email=%s entra_enabled=%s path=%s",
+                _has_bearer, _has_email, ENTRA_ENABLED, request.url.path)
+
     if ENTRA_ENABLED:
         auth_header = request.headers.get("Authorization", "")
         if auth_header.startswith("Bearer "):
             try:
                 return await validate_entra_user(request)
-            except HTTPException:
+            except HTTPException as e:
+                logger.info("AUTH_DEBUG: Entra validation failed: %s", e.detail)
                 pass  # fall through to next option
 
     # 2. Email header path
@@ -428,4 +434,3 @@ def validate_allowed_user_full(request: Request) -> AuthenticatedUser:
     raise HTTPException(
         status_code=401,
         detail="Authentication required. Please sign in via the application.",
-    )
