@@ -201,7 +201,7 @@ class AuthenticatedUser:
         self.email = email.lower() if email else ""
         self.name = name or email or "Unknown"
         self.roles = roles  # e.g. ["Admin"] or ["User"]
-        self.source = source  # "entra" | "email" | "localhost"
+        self.source = source  # "entra" | "email" | "localhost" | "easyauth"
         self.is_admin = ADMIN_ROLE_NAME in roles
 
     def __repr__(self):
@@ -260,11 +260,52 @@ async def validate_email_user(request: Request) -> AuthenticatedUser:
     return AuthenticatedUser(email=user_email, name=name, roles=roles, source="email")
 
 
+# ─── EasyAuth helper (Azure Static Web Apps / App Service) ──────────────────────
+
+def get_client_principal(request: Request) -> Optional[dict]:
+    """
+    Get the client principal from Azure EasyAuth headers (X-MS-CLIENT-PRINCIPAL).
+    Used as a passthrough when the app sits behind App Service EasyAuth.
+    """
+    encoded = request.headers.get("X-MS-CLIENT-PRINCIPAL")
+    if not encoded:
+        return None
+    try:
+        decoded = base64.b64decode(encoded).decode("utf-8")
+        return json.loads(decoded)
+    except Exception:
+        return None
+
+
+def extract_easyauth_user(request: Request) -> Optional[AuthenticatedUser]:
+    """
+    If App Service EasyAuth is active, extract user from the injected header.
+    This lets us coexist with the built-in EasyAuth layer.
+    """
+    principal = get_client_principal(request)
+    if not principal:
+        return None
+    claims = {c["typ"]: c["val"] for c in principal.get("claims", [])}
+    email = _extract_email_from_claims(claims)
+    if not email:
+        return None
+    roles = _extract_roles_from_claims(claims)
+    name = claims.get("name") or claims.get("preferred_username") or email
+    if ALLOWED_EMAILS and email.lower() not in ALLOWED_EMAILS:
+        return None
+    return AuthenticatedUser(email=email, name=name, roles=roles, source="easyauth")
+
+
 async def validate_allowed_user(request: Request) -> AuthenticatedUser:
     """
-    Top-level auth validator — tries Entra ID first if enabled,
+    Top-level auth validator — tries EasyAuth first, then Entra ID if enabled,
     falls back to email header, then localhost bypass for development.
     """
+    # 0. EasyAuth (Azure Static Web Apps / App Service) — check FIRST
+    user = extract_easyauth_user(request)
+    if user:
+        return user
+
     # 1. Entra ID SSO path
     if ENTRA_ENABLED:
         auth_header = request.headers.get("Authorization", "")
@@ -341,42 +382,6 @@ async def require_admin(request: Request) -> AuthenticatedUser:
     return user
 
 
-# ─── EasyAuth helper (App Service) ─────────────────────────────────────────────
-
-def get_client_principal(request: Request) -> Optional[dict]:
-    """
-    Get the client principal from Azure EasyAuth headers (X-MS-CLIENT-PRINCIPAL).
-    Used as a passthrough when the app sits behind App Service EasyAuth.
-    """
-    encoded = request.headers.get("X-MS-CLIENT-PRINCIPAL")
-    if not encoded:
-        return None
-    try:
-        decoded = base64.b64decode(encoded).decode("utf-8")
-        return json.loads(decoded)
-    except Exception:
-        return None
-
-
-def extract_easyauth_user(request: Request) -> Optional[AuthenticatedUser]:
-    """
-    If App Service EasyAuth is active, extract user from the injected header.
-    This lets us coexist with the built-in EasyAuth layer.
-    """
-    principal = get_client_principal(request)
-    if not principal:
-        return None
-    claims = {c["typ"]: c["val"] for c in principal.get("claims", [])}
-    email = _extract_email_from_claims(claims)
-    if not email:
-        return None
-    roles = _extract_roles_from_claims(claims)
-    name = claims.get("name") or claims.get("preferred_username") or email
-    if ALLOWED_EMAILS and email.lower() not in ALLOWED_EMAILS:
-        return None
-    return AuthenticatedUser(email=email, name=name, roles=roles, source="easyauth")
-
-
 def validate_allowed_user_full(request: Request) -> AuthenticatedUser:
     """
     Unified entry point that tries:
@@ -396,7 +401,8 @@ def validate_allowed_user_full(request: Request) -> AuthenticatedUser:
         token = auth_header[7:].strip()
         if token:
             try:
-                return validate_entra_user(request)
+                import asyncio
+                return asyncio.run(validate_entra_user(request))
             except HTTPException:
                 pass
 
