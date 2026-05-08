@@ -346,11 +346,9 @@ def extract_dates_and_data_from_pdf(
     if table_activities:
         table_data_str = "\n\nSTRUCTURED TABLE DATA (use this for accurate ID-to-Name mapping):\n"
         table_data_str += "Format: Activity ID | Activity Name\n"
-        for ta in table_activities[:200]:  # Limit to first 200 to avoid token overflow
+        for ta in table_activities:
             act_name = ta["activity_name"] if ta["activity_name"] else "(no name found in table)"
             table_data_str += f"  {ta['activity_id']} | {act_name}\n"
-        if len(table_activities) > 200:
-            table_data_str += f"  ... and {len(table_activities) - 200} more activities\n"
 
     # Build knowledge-base hint block from planner-verified corrections
     kb_block = ""
