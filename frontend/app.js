@@ -49,9 +49,10 @@ async function refreshAccessToken() {
     const resp = await msalInstance.acquireTokenSilent({ account: msalAccount, scopes: ["User.Read"] });
     msalAccessToken = resp.accessToken;
   } catch (_) {
-    // Silent refresh failed (e.g. network down, consent required).
-    // Keep the current token — backend will return 401 if it is expired,
-    // which apiFetch() will surface as a sign-in prompt.
+    // Silent refresh failed (expired session, network down, consent required).
+    // Clear the stale token so authHeaders() falls back to X-User-Email
+    // rather than sending an expired Bearer that the backend will reject.
+    msalAccessToken = "";
   }
 }
 
@@ -268,7 +269,7 @@ async function initAuth() {
       if (accounts.length > 0) {
         msalAccount = accounts[0];
         try {
-          const resp = await msal.acquireTokenSilent({ accounts: [msalAccount], scopes: ["User.Read"] });
+          const resp = await msal.acquireTokenSilent({ account: msalAccount, scopes: ["User.Read"] });
           msalAccessToken = resp.accessToken;
         } catch (_) {}
         await fetchAndSetUser();
