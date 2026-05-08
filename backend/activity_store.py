@@ -62,7 +62,7 @@ CREATE TABLE IF NOT EXISTS activity_events (
     result_artifact_url TEXT,         -- URL to blob storage snapshot
     duration_ms     INTEGER,
     error_message   TEXT,
-    created_at      REAL NOT NULL DEFAULT (unixepoch())
+    created_at      REAL NOT NULL DEFAULT (strftime('%s', 'now'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_activity_user_triggered
@@ -82,7 +82,7 @@ CREATE TABLE IF NOT EXISTS admin_views (
     target_event_id TEXT NOT NULL,
     target_function TEXT NOT NULL,
     target_project  TEXT,
-    viewed_at       REAL NOT NULL DEFAULT (unixepoch()),
+    viewed_at       REAL NOT NULL DEFAULT (strftime('%s', 'now')),
     FOREIGN KEY (target_event_id) REFERENCES activity_events(event_id)
 );
 """
@@ -161,8 +161,8 @@ def capture_event(
         conn.execute(
             """INSERT INTO activity_events
                (event_id, user_email, user_display_name, function_name,
-                triggered_at, status, project_code, tranche, input_files)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                triggered_at, status, project_code, tranche, input_files, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 event_id,
                 user_email,
@@ -173,6 +173,7 @@ def capture_event(
                 project_code or "",
                 tranche or "",
                 json.dumps(input_files or []),
+                now,
             ),
         )
         conn.commit()
