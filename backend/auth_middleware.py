@@ -434,3 +434,4 @@ def validate_allowed_user_full(request: Request) -> AuthenticatedUser:
     raise HTTPException(
         status_code=401,
         detail="Authentication required. Please sign in via the application.",
+    )
