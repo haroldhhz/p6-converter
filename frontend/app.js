@@ -41,6 +41,36 @@ function authHeaders(extra = {}) {
 
 let msalAccessToken = "";
 
+// Silently refresh the MSAL access token before it expires.
+// Called before every API request so a stale token never reaches the backend.
+async function refreshAccessToken() {
+  if (!msalInstance || !msalAccount) return;
+  try {
+    const resp = await msalInstance.acquireTokenSilent({ account: msalAccount, scopes: ["User.Read"] });
+    msalAccessToken = resp.accessToken;
+  } catch (_) {
+    // Silent refresh failed (e.g. network down, consent required).
+    // Keep the current token — backend will return 401 if it is expired,
+    // which apiFetch() will surface as a sign-in prompt.
+  }
+}
+
+// Drop-in fetch wrapper: refreshes the MSAL token before the call and
+// retries once on 401 (handles the edge case where the token expired
+// between the refresh and the request reaching the server).
+async function apiFetch(url, options = {}) {
+  await refreshAccessToken();
+  options.headers = { ...authHeaders(options.headers || {}) };
+  let res = await fetch(url, options);
+  if (res.status === 401 && msalAccount) {
+    // One retry after a forced silent refresh
+    await refreshAccessToken();
+    options.headers = { ...authHeaders(options.headers || {}) };
+    res = await fetch(url, options);
+  }
+  return res;
+}
+
 // ─── State ─────────────────────────────────────────────────────────────────
 let projectResults = [];
 let activeIdx = 0;
@@ -553,9 +583,9 @@ downloadBtn.addEventListener("click", async () => {
   const p = projectResults[activeIdx];
   if (!p || p.error) return;
   try {
-    const res = await fetch(`${API_BASE}/download-edited/`, {
+    const res = await apiFetch(`${API_BASE}/download-edited/`, {
       method: "POST",
-      headers: authHeaders({ "Content-Type": "application/json" }),
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ project_code: p.project_code, activities: editableActivities }),
     });
     if (!res.ok) {
@@ -584,9 +614,9 @@ saveKbBtn.addEventListener("click", async () => {
   saveKbBtn.disabled = true;
   saveKbBtn.textContent = "💾 Saving…";
   try {
-    const res = await fetch(`${API_BASE}/knowledge-base/save/`, {
+    const res = await apiFetch(`${API_BASE}/knowledge-base/save/`, {
       method: "POST",
-      headers: authHeaders({ "Content-Type": "application/json" }),
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ project_code: p.project_code, activities: editableActivities }),
     });
     if (!res.ok) {
@@ -659,9 +689,8 @@ form.addEventListener("submit", async (e) => {
   showStatus(`Processing ${taskCount} project${taskCount > 1 ? "s" : ""} in parallel…`);
 
   try {
-    const res = await fetch(`${API_BASE}/batch-convert/`, {
+    const res = await apiFetch(`${API_BASE}/batch-convert/`, {
       method: "POST",
-      headers: authHeaders(),
       body: fd,
     });
     if (!res.ok) {
@@ -741,9 +770,8 @@ riskUploadForm.addEventListener("submit", async (e) => {
     const regFile = document.getElementById("knowledgeFiles")?.files?.[0] || riskRegisterFile;
     if (regFile) fd.append("risk_register_file", regFile);
 
-    const res = await fetch(`${API_BASE}/risk-manager/parse/`, {
+    const res = await apiFetch(`${API_BASE}/risk-manager/parse/`, {
       method: "POST",
-      headers: authHeaders(),
       body: fd,
     });
     if (!res.ok) {
@@ -936,9 +964,9 @@ document.getElementById("downloadRiskBtn").addEventListener("click", async () =>
   if (!active.length) { showRiskStatus("❌ No risks to export.", true); return; }
   const projectCode = (document.getElementById("riskProjectCode").value || "").trim().toUpperCase() || "RISK";
   try {
-    const res = await fetch(`${API_BASE}/risk-manager/download/`, {
+    const res = await apiFetch(`${API_BASE}/risk-manager/download/`, {
       method: "POST",
-      headers: authHeaders({ "Content-Type": "application/json" }),
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ project_code: projectCode, risks: active }),
     });
     if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || "Server error"); }
@@ -955,9 +983,9 @@ document.getElementById("saveRiskKbBtn").addEventListener("click", async () => {
   const btn = document.getElementById("saveRiskKbBtn");
   btn.disabled = true; btn.textContent = "💾 Saving…";
   try {
-    const res = await fetch(`${API_BASE}/risk-manager/kb/save/`, {
+    const res = await apiFetch(`${API_BASE}/risk-manager/kb/save/`, {
       method: "POST",
-      headers: authHeaders({ "Content-Type": "application/json" }),
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ project_code: projectCode, risks: riskCandidates }),
     });
     if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || "Server error"); }
@@ -1060,7 +1088,7 @@ async function fetchActivityEvents({ page = 1, filters = {} } = {}) {
   params.set("sort_dir", activitySortDir);
 
   try {
-    const res = await fetch(`${API_BASE}/api/admin/events?${params}`, { headers: authHeaders() });
+    const res = await apiFetch(`${API_BASE}/api/admin/events?${params}`);
     if (!res.ok) {
       const msg = res.status === 403 ? "Admin access required." : "Failed to load activity log.";
       document.getElementById("activityTableBody").innerHTML =
@@ -1183,7 +1211,7 @@ async function openActivityDetail(eventId) {
   modal.classList.remove("hidden");
 
   try {
-    const res = await fetch(`${API_BASE}/api/admin/events/${eventId}`, { headers: authHeaders() });
+    const res = await apiFetch(`${API_BASE}/api/admin/events/${eventId}`);
     if (!res.ok) { body.innerHTML = "<p>Failed to load detail.</p>"; return; }
     const ev = await res.json();
     title.textContent = `${ev.function_name === "ims_generator" ? "IMS Generator" : "Risk Manager"} — ${ev.project_code || ""}`;
@@ -1327,7 +1355,7 @@ async function loadDashboard() {
   _dashEl("dashboardOverview").classList.add("hidden");
 
   try {
-    const res = await fetch(`${API_BASE}/api/dashboard/risks`, { headers: authHeaders() });
+    const res = await apiFetch(`${API_BASE}/api/dashboard/risks`);
     if (!res.ok) throw new Error(res.status);
     dashboardData = await res.json();
     _populateDashboardFilters(dashboardData.filters || {});
