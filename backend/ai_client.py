@@ -103,7 +103,7 @@ def get_doc_intel_client() -> DocumentIntelligenceClient:
     )
 
 
-def extract_tables_from_pdf(pdf_bytes: bytes) -> list[pd.DataFrame]:
+def extract_tables_from_pdf(pdf_bytes: bytes, pages: Optional[str] = None) -> list[pd.DataFrame]:
     """
     Uses Azure Document Intelligence 'layout' model to extract all
     tables from a PDF and return them as a list of DataFrames.
@@ -111,13 +111,12 @@ def extract_tables_from_pdf(pdf_bytes: bytes) -> list[pd.DataFrame]:
     from azure.ai.documentintelligence.models import AnalyzeDocumentRequest
     client = get_doc_intel_client()
 
-    # Use AnalyzeDocumentRequest with bytes_source
     request = AnalyzeDocumentRequest(bytes_source=pdf_bytes)
-    
+    page_range = pages if pages else "1-9999"
     poller = client.begin_analyze_document(
         model_id="prebuilt-layout",
         body=request,
-        pages="1-9999",
+        pages=page_range,
     )
     result: AnalyzeResult = poller.result()
 
@@ -152,27 +151,16 @@ def extract_table_data_with_names(pdf_bytes: bytes, pages: Optional[str] = None)
     """
     Extract activity ID and name pairs from PDF tables.
     This provides structured data to help AI correctly map IDs to names.
-    
+
     Returns list of dicts with:
     - activity_id: The Activity ID from the PDF
     - activity_name: The Activity Name from the PDF (or empty if not found)
     - row_data: Full row data as string for reference
     """
-    from azure.ai.documentintelligence.models import AnalyzeDocumentRequest
-    client = get_doc_intel_client()
-    request = AnalyzeDocumentRequest(bytes_source=pdf_bytes)
-    page_range = pages if pages else "1-9999"
-    poller = client.begin_analyze_document(
-        model_id="prebuilt-layout",
-        body=request,
-        pages=page_range,
-    )
-    result = poller.result()
-    
     activities: list[dict] = []
-    
-    # Try to find the main activity table
-    tables = extract_tables_from_pdf(pdf_bytes)
+
+    # Single DI call, restricted to the requested page range
+    tables = extract_tables_from_pdf(pdf_bytes, pages=pages)
     
     # Keywords to identify Activity ID and Activity Name columns
     id_keywords = ["activity id", "task id", "task_code", "taskcode", "activity"]
