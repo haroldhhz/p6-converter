@@ -154,9 +154,7 @@ async function fetchAndSetUser() {
   // Set temp user so authHeaders() can send Bearer token
   currentUser = { email: msalAccount.username, name: msalAccount.name || msalAccount.username, roles: [], is_admin: true, source: "entra" };
   try {
-    const res = await fetch(`${API_BASE}/auth/me`, {
-      headers: authHeaders(),
-    });
+    const res = await apiFetch(`${API_BASE}/auth/me`);
     if (!res.ok) {
       // Prefer saved session, fall back to msalAccount
       const saved = getSavedUser();
