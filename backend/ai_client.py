@@ -725,9 +725,6 @@ def extract_dates_and_data_from_pdf_multi(
     Returns:
         List of activity dicts (combined from all page ranges), or tuple (data, debug_info) if return_debug_info=True
     """
-    import concurrent.futures
-    import threading
-    
     # Parse page ranges
     if not pages:
         # No specific pages, process all
@@ -758,19 +755,14 @@ def extract_dates_and_data_from_pdf_multi(
             kb_corrections=kb_corrections,
         )
     
-    # Multiple ranges - process in parallel
-    logger.info(f"[{request_id}] Processing {len(page_ranges)} page ranges in parallel: {page_ranges}")
+    # Multiple ranges - process sequentially to avoid overwhelming API endpoints
+    # (concurrent DI+OpenAI calls can cause 504 timeouts on Azure App Service)
+    logger.info(f"[{request_id}] Processing {len(page_ranges)} page ranges sequentially: {page_ranges}")
     
-    # Thread-safe accumulator for results
     all_results: list[dict] = []
-    results_lock = threading.Lock()
     
-    def process_single_range(page_range: str) -> list[dict]:
-        """Process a single page range and return extracted activities with page number."""
-        import uuid
+    for page_range in page_ranges:
         range_request_id = f"{request_id}-{page_range.replace('-', '_')}"
-        
-        # Extract start page number for sorting
         start_page = int(page_range.split('-')[0]) if page_range else 0
         
         try:
@@ -788,23 +780,9 @@ def extract_dates_and_data_from_pdf_multi(
             for activity in result:
                 activity["page_number"] = start_page
             logger.info(f"[{request_id}] Page range {page_range}: extracted {len(result)} activities")
-            return result
+            all_results.extend(result)
         except Exception as e:
             logger.error(f"[{request_id}] Error processing page range {page_range}: {e}")
-            return []
-    
-    # Process all ranges in parallel using ThreadPoolExecutor
-    with concurrent.futures.ThreadPoolExecutor(max_workers=len(page_ranges)) as executor:
-        futures = {executor.submit(process_single_range, pr): pr for pr in page_ranges}
-        
-        for future in concurrent.futures.as_completed(futures):
-            page_range = futures[future]
-            try:
-                result = future.result()
-                with results_lock:
-                    all_results.extend(result)
-            except Exception as e:
-                logger.error(f"[{request_id}] Future error for page range {page_range}: {e}")
     
     logger.info(f"[{request_id}] Parallel extraction complete: {len(all_results)} total activities from {len(page_ranges)} ranges")
     
@@ -860,18 +838,45 @@ def exact_match_on_id(pdf_id: str, standard_ids: list[str]) -> tuple[Optional[st
     return None, 0.0
 
 
+# Phrase-level aliases: normalised PDF name → normalised standard name.
+# Used when the PDF activity name is semantically equivalent to the standard
+# but uses a different grammatical form (e.g. noun "completion" vs adjective "complete").
+_PHRASE_ALIASES: dict[str, str] = {
+    "completion of base build design":              "base build design complete",
+    "completion base build design":                 "base build design complete",
+    "base build design completion":                 "base build design complete",
+    "appointment of general contractor":            "gc contract award",
+    "appointment general contractor":               "gc contract award",
+    "general contractor appointment":               "gc contract award",
+    "general contractor awarded":                   "gc contract award",
+    "awarding of general contractor":               "gc contract award",
+    "gc appointment":                               "gc contract award",
+}
+
+
 def exact_match_on_name(pdf_name: str, standard_df: pd.DataFrame) -> tuple[Optional[str], Optional[str], float]:
     """
     Try exact match on activity name.
     Returns (matched_id, matched_name, confidence) or (None, None, 0.0)
     """
     pdf_name_normalized = normalize_activity_name(pdf_name)
-    
+
+    # Check phrase aliases: exact match first, then prefix match for long names
+    # (e.g. "Appointment of General Contractor - MBW & Base MEP" starts with the alias key)
+    aliased = _PHRASE_ALIASES.get(pdf_name_normalized)
+    if not aliased:
+        for phrase, target in _PHRASE_ALIASES.items():
+            if pdf_name_normalized.startswith(phrase):
+                aliased = target
+                break
+    if aliased:
+        pdf_name_normalized = aliased
+
     for _, row in standard_df.iterrows():
         std_name_normalized = normalize_activity_name(row["task_name"])
         if std_name_normalized == pdf_name_normalized:
             return row["task_code"], row["task_name"], 1.0
-    
+
     return None, None, 0.0
 
 
@@ -1377,7 +1382,9 @@ def fuzzy_match(
                 stripped_ov = ov_score
 
             # Condition A: moderate keyword signal + good stripped-word overlap
-            if kw_score >= 0.15 and stripped_ov >= 0.20:
+            # Threshold 0.30 (not 0.20) prevents single shared common words (e.g. "base")
+            # from triggering a false match when the names are otherwise unrelated.
+            if kw_score >= 0.15 and stripped_ov >= 0.30:
                 return std_id, std_name, max(name_score, 0.65)
 
             # Condition B: strong keyword signal + modest raw overlap

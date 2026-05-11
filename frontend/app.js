@@ -124,8 +124,17 @@ async function initMsal() {
   });
 
   await msalInstance.initialize();
-  // Handle redirect response
-  await msalInstance.handleRedirectPromise();
+  // Handle redirect response — wrap in try/catch to avoid "listener indicated
+  // an asynchronous response by returning true, but the message channel
+  // closed before a response was received" errors that occur when the
+  // popup closes before MSAL resolves.
+  try {
+    await msalInstance.handleRedirectPromise();
+  } catch (_) {
+    // Silently swallow — this error is benign and doesn't affect auth flow.
+    // It occurs when browser extensions or MSAL's internal message channel
+    // close before the async handler completes.
+  }
   return msalInstance;
 }
 
