@@ -708,10 +708,13 @@ def extract_dates_and_data_from_pdf_multi(
     kb_corrections: Optional[list] = None,
 ) -> Union[tuple[list[dict], dict], list[dict]]:
     """
-    Extract dates and data from multiple page ranges in parallel.
+    Extract dates and data from one or more page ranges.
     
-    This function parses comma-separated page ranges (e.g., "1-2,19-20") and
-    processes each range in parallel, then combines all results.
+    Azure Document Intelligence natively supports comma-separated page ranges
+    (e.g. "1-2,18-21") in a single call, so regardless of the number of ranges
+    we delegate directly to extract_dates_and_data_from_pdf with the original
+    pages string.  This avoids the overhead of separate OCR+AI calls per range
+    that could cause 504 timeouts on Azure App Service.
     
     Parameters:
         pdf_bytes: The PDF file bytes
@@ -723,81 +726,18 @@ def extract_dates_and_data_from_pdf_multi(
         pages: Comma-separated page ranges (e.g., "1-2,19-20") or single range (e.g., "1-5")
     
     Returns:
-        List of activity dicts (combined from all page ranges), or tuple (data, debug_info) if return_debug_info=True
+        List of activity dicts, or tuple (data, debug_info) if return_debug_info=True
     """
-    # Parse page ranges
-    if not pages:
-        # No specific pages, process all
-        return extract_dates_and_data_from_pdf(
-            pdf_bytes=pdf_bytes,
-            standard_df=standard_df,
-            request_id=request_id,
-            pdf_filename=pdf_filename,
-            return_debug_info=return_debug_info,
-            user_tranche=user_tranche,
-            pages=None,
-            kb_corrections=kb_corrections,
-        )
-
-    # Split by comma to get individual ranges
-    page_ranges = [r.strip() for r in pages.split(",") if r.strip()]
-
-    if len(page_ranges) == 1:
-        # Single range, no need for parallel processing
-        return extract_dates_and_data_from_pdf(
-            pdf_bytes=pdf_bytes,
-            standard_df=standard_df,
-            request_id=request_id,
-            pdf_filename=pdf_filename,
-            return_debug_info=return_debug_info,
-            user_tranche=user_tranche,
-            pages=page_ranges[0],
-            kb_corrections=kb_corrections,
-        )
-    
-    # Multiple ranges - process sequentially to avoid overwhelming API endpoints
-    # (concurrent DI+OpenAI calls can cause 504 timeouts on Azure App Service)
-    logger.info(f"[{request_id}] Processing {len(page_ranges)} page ranges sequentially: {page_ranges}")
-    
-    all_results: list[dict] = []
-    
-    for page_range in page_ranges:
-        range_request_id = f"{request_id}-{page_range.replace('-', '_')}"
-        start_page = int(page_range.split('-')[0]) if page_range else 0
-        
-        try:
-            result = extract_dates_and_data_from_pdf(
-                pdf_bytes=pdf_bytes,
-                standard_df=standard_df,
-                request_id=range_request_id,
-                pdf_filename=pdf_filename,
-                return_debug_info=False,
-                user_tranche=user_tranche,
-                pages=page_range,
-                kb_corrections=kb_corrections,
-            )
-            # Add page_number to each activity for sorting
-            for activity in result:
-                activity["page_number"] = start_page
-            logger.info(f"[{request_id}] Page range {page_range}: extracted {len(result)} activities")
-            all_results.extend(result)
-        except Exception as e:
-            logger.error(f"[{request_id}] Error processing page range {page_range}: {e}")
-    
-    logger.info(f"[{request_id}] Parallel extraction complete: {len(all_results)} total activities from {len(page_ranges)} ranges")
-    
-    if return_debug_info:
-        # Build combined debug info
-        combined_debug = {
-            "request_id": request_id,
-            "pdf_filename": pdf_filename,
-            "page_ranges_processed": page_ranges,
-            "total_activities_extracted": len(all_results),
-            "parallel_processing": True,
-        }
-        return all_results, combined_debug
-    
-    return all_results
+    return extract_dates_and_data_from_pdf(
+        pdf_bytes=pdf_bytes,
+        standard_df=standard_df,
+        request_id=request_id,
+        pdf_filename=pdf_filename,
+        return_debug_info=return_debug_info,
+        user_tranche=user_tranche,
+        pages=pages,
+        kb_corrections=kb_corrections,
+    )
 
 
 # ─────────────────────────────────────────────
