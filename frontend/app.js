@@ -118,23 +118,19 @@ async function initMsal() {
     auth: {
       clientId: MSAL_CLIENT_ID,
       authority: `https://login.microsoftonline.com/${MSAL_TENANT_ID}`,
-      redirectUri: window.location.origin,
+      redirectUri: window.location.origin.replace(/^http:/, 'https:'),
+      navigateToLoginRequestUrl: false,
     },
     cache: { cacheLocation: "localStorage", storeAuthStateInCookie: true },
+    system: {
+      iframeHashPrefix: "https://",
+    },
   });
 
   await msalInstance.initialize();
-  // Handle redirect response — wrap in try/catch to avoid "listener indicated
-  // an asynchronous response by returning true, but the message channel
-  // closed before a response was received" errors that occur when the
-  // popup closes before MSAL resolves.
-  try {
-    await msalInstance.handleRedirectPromise();
-  } catch (_) {
-    // Silently swallow — this error is benign and doesn't affect auth flow.
-    // It occurs when browser extensions or MSAL's internal message channel
-    // close before the async handler completes.
-  }
+  // No handleRedirectPromise needed — we use popup-only login.
+  // The redirect flow is not used, so calling it would just add noise
+  // and cause spurious console errors about closed message channels.
   return msalInstance;
 }
 
