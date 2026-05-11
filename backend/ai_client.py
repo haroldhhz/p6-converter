@@ -7,6 +7,7 @@ import os
 import re
 import json
 import logging
+import concurrent.futures
 from collections import Counter
 from pathlib import Path
 from typing import Optional, Any, Union
@@ -708,13 +709,16 @@ def extract_dates_and_data_from_pdf_multi(
     kb_corrections: Optional[list] = None,
 ) -> Union[tuple[list[dict], dict], list[dict]]:
     """
-    Extract dates and data from one or more page ranges.
+    Extract dates and data from one or more page ranges in parallel.
     
-    Azure Document Intelligence natively supports comma-separated page ranges
-    (e.g. "1-2,18-21") in a single call, so regardless of the number of ranges
-    we delegate directly to extract_dates_and_data_from_pdf with the original
-    pages string.  This avoids the overhead of separate OCR+AI calls per range
-    that could cause 504 timeouts on Azure App Service.
+    For multiple comma-separated page ranges (e.g. "1-2,19-20"), splits into
+    individual ranges and processes each in a separate thread via
+    ThreadPoolExecutor.  This avoids 504 timeouts on Azure App Service by
+    keeping each OCR + AI call small enough to complete within the platform's
+    230-second inbound request timeout.
+    
+    For a single range (e.g. "1-5") or no pages at all, delegates directly to
+    extract_dates_and_data_from_pdf (no threading overhead).
     
     Parameters:
         pdf_bytes: The PDF file bytes
@@ -728,16 +732,103 @@ def extract_dates_and_data_from_pdf_multi(
     Returns:
         List of activity dicts, or tuple (data, debug_info) if return_debug_info=True
     """
-    return extract_dates_and_data_from_pdf(
-        pdf_bytes=pdf_bytes,
-        standard_df=standard_df,
-        request_id=request_id,
-        pdf_filename=pdf_filename,
-        return_debug_info=return_debug_info,
-        user_tranche=user_tranche,
-        pages=pages,
-        kb_corrections=kb_corrections,
+    # Parse comma-separated page ranges into individual range strings
+    range_list = []
+    if pages:
+        raw_ranges = [r.strip() for r in pages.split(",") if r.strip()]
+        # Validate each range looks like "N-M" or "N"
+        for r in raw_ranges:
+            parts = r.split("-")
+            if len(parts) == 2:
+                try:
+                    int(parts[0].strip())
+                    int(parts[1].strip())
+                    range_list.append(r)
+                except ValueError:
+                    continue
+            elif len(parts) == 1:
+                try:
+                    int(parts[0].strip())
+                    range_list.append(r)
+                except ValueError:
+                    continue
+
+    # Single range (or no pages) — delegate directly, no threading
+    if len(range_list) <= 1:
+        return extract_dates_and_data_from_pdf(
+            pdf_bytes=pdf_bytes,
+            standard_df=standard_df,
+            request_id=request_id,
+            pdf_filename=pdf_filename,
+            return_debug_info=return_debug_info,
+            user_tranche=user_tranche,
+            pages=pages,
+            kb_corrections=kb_corrections,
+        )
+
+    # Multiple ranges — process each in parallel
+    logger.info(
+        f"[{request_id}] Splitting {len(range_list)} page ranges for parallel "
+        f"processing: {range_list}"
     )
+
+    def _process_range(range_str: str) -> list[dict]:
+        """Process a single page range and return activities."""
+        return extract_dates_and_data_from_pdf(
+            pdf_bytes=pdf_bytes,
+            standard_df=standard_df,
+            request_id=f"{request_id}_{range_str.replace('-','_')}",
+            pdf_filename=pdf_filename,
+            return_debug_info=False,  # never request debug for sub-ranges
+            user_tranche=user_tranche,
+            pages=range_str,
+            kb_corrections=kb_corrections,
+        )
+
+    all_activities: list[dict] = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(range_list)) as executor:
+        fut_to_range = {
+            executor.submit(_process_range, r): r
+            for r in range_list
+        }
+        for future in concurrent.futures.as_completed(fut_to_range):
+            r = fut_to_range[future]
+            try:
+                activities = future.result()
+                logger.info(
+                    f"[{request_id}] Range {r} returned {len(activities)} activities"
+                )
+                all_activities.extend(activities)
+            except Exception as exc:
+                logger.error(
+                    f"[{request_id}] Range {r} failed: {exc}",
+                    exc_info=True,
+                )
+
+    # Deduplicate by pdf_activity_id (keep first occurrence)
+    seen: set[str] = set()
+    deduped: list[dict] = []
+    for a in all_activities:
+        pid = a.get("pdf_activity_id", "") or ""
+        if pid and pid not in seen:
+            seen.add(pid)
+            deduped.append(a)
+        elif not pid:
+            deduped.append(a)
+
+    logger.info(
+        f"[{request_id}] Merged {len(deduped)} activities "
+        f"(from {len(all_activities)} raw) across {len(range_list)} ranges"
+    )
+
+    if return_debug_info:
+        debug_info = {
+            "parallel_ranges": range_list,
+            "raw_count": len(all_activities),
+            "deduped_count": len(deduped),
+        }
+        return deduped, debug_info
+    return deduped
 
 
 # ─────────────────────────────────────────────
