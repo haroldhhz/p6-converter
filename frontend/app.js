@@ -120,7 +120,7 @@ async function initMsal() {
       authority: `https://login.microsoftonline.com/${MSAL_TENANT_ID}`,
       redirectUri: window.location.origin,
     },
-    cache: { cacheLocation: "localStorage", storeAuthStateInCookie: false },
+    cache: { cacheLocation: "localStorage", storeAuthStateInCookie: true },
   });
 
   await msalInstance.initialize();
