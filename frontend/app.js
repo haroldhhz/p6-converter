@@ -47,7 +47,7 @@ let msalAccessToken = "";
 async function refreshAccessToken() {
   if (!msalInstance || !msalAccount) return;
   try {
-    const resp = await msalInstance.acquireTokenSilent({ account: msalAccount, scopes: ["User.Read"] });
+    const resp = await msalInstance.acquireTokenSilent({ account: msalAccount, scopes: ["User.Read"], redirectUri: msalInstance.getConfiguration().auth.redirectUri });
     msalAccessToken = resp.accessToken;
   } catch (_) {
     // Silent refresh failed (expired session, network down, consent required).
@@ -118,13 +118,10 @@ async function initMsal() {
     auth: {
       clientId: MSAL_CLIENT_ID,
       authority: `https://login.microsoftonline.com/${MSAL_TENANT_ID}`,
-      redirectUri: window.location.origin.replace(/^http:/, 'https:'),
+      redirectUri: (window.location.origin + window.location.pathname).replace(/^http:/, 'https:'),
       navigateToLoginRequestUrl: false,
     },
     cache: { cacheLocation: "localStorage", storeAuthStateInCookie: true },
-    system: {
-      iframeHashPrefix: "https://",
-    },
   });
 
   await msalInstance.initialize();
@@ -273,7 +270,7 @@ async function initAuth() {
       if (accounts.length > 0) {
         msalAccount = accounts[0];
         try {
-          const resp = await msal.acquireTokenSilent({ account: msalAccount, scopes: ["User.Read"] });
+          const resp = await msal.acquireTokenSilent({ account: msalAccount, scopes: ["User.Read"], redirectUri: msal.getConfiguration().auth.redirectUri });
           msalAccessToken = resp.accessToken;
         } catch (_) {}
         await fetchAndSetUser();
